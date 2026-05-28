@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>F1 Race Analytics — Lakehouse Console</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --f1-red:#FF1801;
+    --f1-bg:#06070B;
+    --f1-bg2:#0B0D14;
+    --f1-card:#10131C;
+    --f1-card2:#161A26;
+    --f1-line:#1F2433;
+    --f1-text:#E8EAF0;
+    --f1-mute:#7A8194;
+  }
+  html,body {
+    background:
+      radial-gradient(1200px 600px at 85% -10%, rgba(255,24,1,.10), transparent 60%),
+      radial-gradient(900px 500px at -10% 30%, rgba(60,90,200,.07), transparent 60%),
+      linear-gradient(180deg, #07080D 0%, #0A0C13 100%);
+    background-attachment: fixed;
+    color:var(--f1-text);
+    font-family:'Inter',system-ui,sans-serif;
+    font-feature-settings:'ss01','cv11';
+    -webkit-font-smoothing:antialiased;
+  }
+  .f1-font { font-family:'Oswald',sans-serif; font-weight:600; letter-spacing:.04em; }
+  .mono { font-family:'JetBrains Mono',monospace; }
+  .clip-slant { clip-path: polygon(0 0, 100% 0, 96% 100%, 0 100%); }
+  .clip-slant-r { clip-path: polygon(4% 0, 100% 0, 100% 100%, 0 100%); }
+  .stripe { background-image: repeating-linear-gradient(90deg, var(--f1-red) 0 12px, transparent 12px 24px); height:3px; }
+  .card { background:linear-gradient(180deg,var(--f1-card) 0%, var(--f1-card2) 100%); border:1px solid var(--f1-line); border-radius:6px; }
+  .glow { transition:.25s; }
+  .glow:hover { border-color:rgba(255,24,1,.5); box-shadow:0 0 0 1px rgba(255,24,1,.3), 0 18px 40px -18px rgba(255,24,1,.5); transform:translateY(-3px); }
+  .tab-active { color:#fff; border-bottom:3px solid var(--f1-red); }
+  .tab { color:#8a8a93; padding:14px 18px; cursor:pointer; font-weight:700; text-transform:uppercase; font-size:13px; letter-spacing:.08em; border-bottom:3px solid transparent;}
+  .tab:hover { color:#fff; }
+  .pill { font-size:10px; padding:3px 8px; border-radius:2px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
+  .btn-red { background:var(--f1-red); color:#fff; padding:10px 18px; font-weight:700; text-transform:uppercase; font-size:13px; letter-spacing:.05em; clip-path: polygon(0 0, 100% 0, 94% 100%, 0 100%); }
+  .btn-red:hover { background:#ff1a0d; }
+  .btn-ghost { border:1px solid #2e2e38; padding:9px 16px; font-weight:700; text-transform:uppercase; font-size:12px; color:#ccc; }
+  .btn-ghost:hover { border-color:var(--f1-red); color:#fff; }
+  input,select,textarea { background:#0A0D14; border:1px solid #232838; color:var(--f1-text); padding:10px 12px; width:100%; font-size:14px; border-radius:4px; }
+  input:focus,select:focus,textarea:focus { outline:none; border-color:var(--f1-red); }
+  label { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:#9a9aa3; font-weight:700; margin-bottom:6px; display:block;}
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:#9a9aa3; padding:12px 14px; border-bottom:1px solid var(--f1-line); }
+  td { padding:14px; border-bottom:1px solid #161A26; font-size:14px; }
+  tr:hover td { background:#13172169; }
+  .num-badge { width:42px; height:42px; background:var(--f1-red); display:flex; align-items:center; justify-content:center; font-weight:900; font-size:18px; clip-path: polygon(0 0, 100% 0, 85% 100%, 0 100%); }
+  .team-bar { width:4px; height:42px; }
+  .live-dot { width:8px; height:8px; background:#22c55e; border-radius:50%; display:inline-block; animation:pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .hidden-tab { display:none; }
+  .scroll-x { overflow-x:auto; }
+  /* drawer */
+  .drawer-overlay { position:fixed; inset:0; background:rgba(0,0,0,.7); backdrop-filter:blur(4px); z-index:60; opacity:0; pointer-events:none; transition:.2s; }
+  .drawer-overlay.open { opacity:1; pointer-events:auto; }
+  .drawer { position:fixed; right:0; top:0; bottom:0; width:480px; max-width:95vw; background:linear-gradient(180deg,#0B0D14,#10131C); border-left:1px solid var(--f1-line); z-index:70; transform:translateX(100%); transition:.3s cubic-bezier(.4,0,.2,1); overflow-y:auto; }
+  .drawer.open { transform:translateX(0); }
+  /* toggle */
+  .toggle { position:relative; width:54px; height:28px; background:#232838; border-radius:999px; cursor:pointer; transition:.2s; }
+  .toggle.on { background:var(--f1-red); }
+  .toggle::after { content:''; position:absolute; top:3px; left:3px; width:22px; height:22px; background:#fff; border-radius:50%; transition:.2s; }
+  .toggle.on::after { left:29px; }
+  /* circuit track */
+  .track-path { fill:none; stroke:var(--f1-red); stroke-width:6; stroke-linecap:round; stroke-linejoin:round; filter:drop-shadow(0 0 8px rgba(255,24,1,.4));}
+  .track-bg { fill:none; stroke:#232838; stroke-width:10; stroke-linecap:round; stroke-linejoin:round; }
+  .sector-dot { fill:#fff; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- TOP BAR -->
+<header class="border-b border-[var(--f1-line)] sticky top-0 z-40 bg-[var(--f1-bg)]/95 backdrop-blur">
+  <div class="stripe"></div>
+  <div class="max-w-[1400px] mx-auto px-6 flex items-center justify-between h-16">
+    <div class="flex items-center gap-6">
+      <div class="flex items-center gap-2">
+        <div class="bg-[var(--f1-red)] f1-font text-white text-xl px-3 py-1 clip-slant">F1</div>
+        <div class="f1-font text-sm uppercase tracking-widest">Race Analytics<span class="text-[var(--f1-red)]">.</span></div>
+      </div>
+      <nav class="flex items-center ml-4">
+        <div class="tab tab-active" data-tab="dashboard">Dashboard</div>
+        <div class="tab" data-tab="drivers">Drivers</div>
+        <div class="tab" data-tab="races">Races</div>
+        <div class="tab" data-tab="standings">Standings</div>
+        <div class="tab" data-tab="admin">Admin</div>
+      </nav>
+    </div>
+    <div class="flex items-center gap-3">
+      <select class="!w-28 !py-2 text-xs"><option>2025</option><option>2024</option><option>2023</option></select>
+      <span class="pill bg-green-600/20 text-green-400 border border-green-600/40">● Pipeline OK</span>
+      <div class="flex items-center gap-2 ml-2">
+        <div class="w-9 h-9 rounded-full bg-[var(--f1-red)] flex items-center justify-center font-bold text-sm">RM</div>
+        <div class="text-xs">
+          <div class="font-bold">Rahat M.</div>
+          <div class="text-[10px] text-gray-400 uppercase">Admin</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-[1400px] mx-auto px-6 py-8">
+
+  <!-- =================== DASHBOARD TAB =================== -->
+  <section id="tab-dashboard">
+
+    <!-- HERO -->
+    <div class="grid grid-cols-12 gap-4 mb-8">
+      <div class="col-span-12 md:col-span-6 card p-6 relative overflow-hidden">
+        <div class="absolute top-0 right-0 w-40 h-40 bg-[var(--f1-red)] opacity-10 blur-3xl"></div>
+        <div class="pill bg-[var(--f1-red)] text-white inline-block mb-3">Next Race · Round 9</div>
+        <h1 class="f1-font text-4xl md:text-5xl uppercase leading-none">Monaco<br/><span class="text-[var(--f1-red)]">Grand Prix</span></h1>
+        <div class="text-sm text-gray-400 mt-2">Circuit de Monaco · 78 laps · 260.286 km</div>
+        <div class="flex gap-6 mt-6">
+          <div><div class="text-xs text-gray-500 uppercase">Days</div><div class="f1-font text-3xl">04</div></div>
+          <div><div class="text-xs text-gray-500 uppercase">Hours</div><div class="f1-font text-3xl">12</div></div>
+          <div><div class="text-xs text-gray-500 uppercase">Mins</div><div class="f1-font text-3xl">37</div></div>
+          <div><div class="text-xs text-gray-500 uppercase">Secs</div><div class="f1-font text-3xl" id="cd-sec">22</div></div>
+        </div>
+      </div>
+
+      <div class="col-span-12 md:col-span-3 card p-5 glow">
+        <div class="text-xs text-gray-500 uppercase mb-1">Last Race Winner</div>
+        <div class="text-xs text-gray-400">Emilia Romagna GP</div>
+        <div class="flex items-center gap-3 mt-3">
+          <div class="num-badge">1</div>
+          <div>
+            <div class="f1-font text-xl">Verstappen</div>
+            <div class="text-xs text-gray-400">Red Bull Racing</div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3 mt-4 text-xs">
+          <div><div class="text-gray-500">Time</div><div class="f1-font text-lg">1:25:42.118</div></div>
+          <div><div class="text-gray-500">Fastest Lap</div><div class="f1-font text-lg">1:15.909</div></div>
+        </div>
+      </div>
+
+      <div class="col-span-12 md:col-span-3 card p-5 glow">
+        <div class="text-xs text-gray-500 uppercase mb-1">Championship Leader</div>
+        <div class="flex items-center gap-3 mt-3">
+          <div class="num-badge">1</div>
+          <div>
+            <div class="f1-font text-xl">Verstappen</div>
+            <div class="text-xs text-gray-400">169 PTS</div>
+          </div>
+        </div>
+        <div class="mt-4">
+          <div class="flex justify-between text-xs mb-1"><span class="text-gray-400">Lead over P2</span><span class="text-[var(--f1-red)] font-bold">+32 PTS</span></div>
+          <div class="h-2 bg-[#0A0D14]"><div class="h-2 bg-[var(--f1-red)]" style="width:72%"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- KPI TILES -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div class="card p-5"><div class="text-xs text-gray-500 uppercase">Total Races</div><div class="f1-font text-3xl mt-1">1,124</div><div class="text-xs text-green-400 mt-1">↑ 12 this season</div></div>
+      <div class="card p-5"><div class="text-xs text-gray-500 uppercase">Active Drivers</div><div class="f1-font text-3xl mt-1">20</div><div class="text-xs text-gray-400 mt-1">10 teams</div></div>
+      <div class="card p-5"><div class="text-xs text-gray-500 uppercase">Fastest Lap (2025)</div><div class="f1-font text-3xl mt-1">1:14.812</div><div class="text-xs text-gray-400 mt-1">Norris · Monza</div></div>
+      <div class="card p-5"><div class="text-xs text-gray-500 uppercase">Avg Pit Stop</div><div class="f1-font text-3xl mt-1">2.41s</div><div class="text-xs text-green-400 mt-1">↓ 0.18s vs 2024</div></div>
+    </div>
+
+    <!-- CHARTS -->
+    <div class="grid grid-cols-12 gap-4 mb-8">
+      <div class="col-span-12 lg:col-span-8 card p-5">
+        <div class="flex justify-between items-center mb-4">
+          <div><div class="f1-font text-lg uppercase">Driver Points Trend</div><div class="text-xs text-gray-500">Top 5 drivers · 2025 season</div></div>
+          <div class="flex gap-2"><button class="btn-ghost">Season</button><button class="btn-ghost">Race</button></div>
+        </div>
+        <canvas id="trendChart" height="110"></canvas>
+      </div>
+      <div class="col-span-12 lg:col-span-4 card p-5">
+        <div class="f1-font text-lg uppercase mb-1">Constructor Share</div>
+        <div class="text-xs text-gray-500 mb-4">Points distribution</div>
+        <canvas id="donutChart" height="200"></canvas>
+      </div>
+    </div>
+
+    <!-- EMBEDDED POWER BI PLACEHOLDER -->
+    <div class="card p-5 mb-8">
+      <div class="flex justify-between items-center mb-3">
+        <div><div class="f1-font text-lg uppercase">Power BI · Embedded Report</div><div class="text-xs text-gray-500">Telemetry · Lap-time analysis · 2025</div></div>
+        <span class="pill bg-green-600/20 text-green-400 border border-green-600/40"><span class="live-dot"></span> Live</span>
+      </div>
+      <div class="h-72 bg-[#0A0D14] border border-dashed border-[var(--f1-line)] flex items-center justify-center">
+        <div class="text-center">
+          <div class="f1-font text-2xl text-gray-600 uppercase">Power BI iFrame</div>
+          <div class="text-xs text-gray-500 mt-2">&lt;iframe src="https://app.powerbi.com/.../embed" /&gt;</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PIPELINE STATUS -->
+    <div class="card p-5">
+      <div class="f1-font text-lg uppercase mb-4">Azure Lakehouse · Pipeline Status</div>
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div class="bg-[#0A0D14] p-4 border-l-4 border-green-500">
+          <div class="text-xs text-gray-500 uppercase">Ingestion (ADF)</div><div class="f1-font text-lg mt-1">Healthy</div><div class="text-xs text-gray-400">Last run: 2m ago</div>
+        </div>
+        <div class="bg-[#0A0D14] p-4 border-l-4 border-green-500">
+          <div class="text-xs text-gray-500 uppercase">Raw → ADLS</div><div class="f1-font text-lg mt-1">12.4 GB</div><div class="text-xs text-gray-400">CSV/JSON</div>
+        </div>
+        <div class="bg-[#0A0D14] p-4 border-l-4 border-green-500">
+          <div class="text-xs text-gray-500 uppercase">Processed</div><div class="f1-font text-lg mt-1">Delta ✓</div><div class="text-xs text-gray-400">Databricks · PySpark</div>
+        </div>
+        <div class="bg-[#0A0D14] p-4 border-l-4 border-yellow-500">
+          <div class="text-xs text-gray-500 uppercase">Analytics Layer</div><div class="f1-font text-lg mt-1">Refreshing</div><div class="text-xs text-gray-400">73% complete</div>
+        </div>
+        <div class="bg-[#0A0D14] p-4 border-l-4 border-green-500">
+          <div class="text-xs text-gray-500 uppercase">Power BI</div><div class="f1-font text-lg mt-1">Synced</div><div class="text-xs text-gray-400">Refresh: 5m ago</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =================== DRIVERS TAB =================== -->
+  <section id="tab-drivers" class="hidden-tab">
+    <div class="flex justify-between items-center mb-6">
+      <div>
+        <h2 class="f1-font text-3xl uppercase">Drivers <span class="text-[var(--f1-red)]">2025</span></h2>
+        <div class="text-sm text-gray-500">20 active · 10 constructors</div>
+      </div>
+      <div class="flex gap-2">
+        <input placeholder="Search driver..." class="!w-56"/>
+        <button class="btn-red" onclick="showTab('admin')">+ Add Driver</button>
+      </div>
+    </div>
+    <div id="driverGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"></div>
+  </section>
+
+  <!-- =================== DRIVER DRAWER =================== -->
+  <div id="drawerOverlay" class="drawer-overlay" onclick="closeDrawer()"></div>
+  <aside id="driverDrawer" class="drawer">
+    <div class="p-6" id="drawerBody"></div>
+  </aside>
+
+  <!-- =================== RACES TAB =================== -->
+  <section id="tab-races" class="hidden-tab">
+    <div class="flex justify-between items-center mb-6">
+      <div>
+        <h2 class="f1-font text-3xl uppercase">Race Calendar <span class="text-[var(--f1-red)]">2025</span></h2>
+        <div class="text-sm text-gray-500">24 rounds · 8 completed · 1 live</div>
+      </div>
+      <div class="flex gap-2">
+        <select class="!w-36"><option>All status</option><option>Completed</option><option>Upcoming</option><option>Live</option></select>
+        <button class="btn-red" onclick="showTab('admin')">+ Add Race</button>
+      </div>
+    </div>
+    <div class="card scroll-x mb-6">
+      <table>
+        <thead><tr><th>Rnd</th><th>Grand Prix</th><th>Circuit</th><th>Date</th><th>Laps</th><th>Winner</th><th>Winning Time</th><th>Fastest Lap</th><th>Status</th><th></th></tr></thead>
+        <tbody id="raceRows"></tbody>
+      </table>
+    </div>
+
+    <!-- CIRCUIT MAP -->
+    <div class="card p-6">
+      <div class="flex justify-between items-center mb-4">
+        <div>
+          <div class="f1-font text-2xl uppercase" id="circuitName">Circuit de Monaco</div>
+          <div class="text-xs text-gray-500" id="circuitMeta">3.337 km · 78 laps · 19 turns</div>
+        </div>
+        <select id="circuitSelect" class="!w-56"></select>
+      </div>
+      <div class="grid grid-cols-12 gap-4">
+        <div class="col-span-12 lg:col-span-8 bg-[#0A0D14] p-4 border border-[var(--f1-line)] rounded">
+          <svg id="circuitSvg" viewBox="0 0 600 320" class="w-full h-72"></svg>
+        </div>
+        <div class="col-span-12 lg:col-span-4 space-y-3">
+          <div class="bg-[#0A0D14] p-3 border border-[var(--f1-line)] rounded flex justify-between items-center">
+            <div><div class="text-[10px] text-gray-500 uppercase">Sector 1</div><div class="f1-font text-lg mono" id="s1">23.412</div></div>
+            <div class="w-2 h-10 bg-purple-500"></div>
+          </div>
+          <div class="bg-[#0A0D14] p-3 border border-[var(--f1-line)] rounded flex justify-between items-center">
+            <div><div class="text-[10px] text-gray-500 uppercase">Sector 2</div><div class="f1-font text-lg mono" id="s2">28.901</div></div>
+            <div class="w-2 h-10 bg-green-500"></div>
+          </div>
+          <div class="bg-[#0A0D14] p-3 border border-[var(--f1-line)] rounded flex justify-between items-center">
+            <div><div class="text-[10px] text-gray-500 uppercase">Sector 3</div><div class="f1-font text-lg mono" id="s3">23.596</div></div>
+            <div class="w-2 h-10 bg-yellow-500"></div>
+          </div>
+          <div class="bg-[#0A0D14] p-3 border border-[var(--f1-line)] rounded">
+            <div class="text-[10px] text-gray-500 uppercase">DRS Zones</div>
+            <div class="f1-font text-lg" id="drsZones">1</div>
+          </div>
+          <div class="bg-[#0A0D14] p-3 border border-[var(--f1-line)] rounded">
+            <div class="text-[10px] text-gray-500 uppercase">Lap Record</div>
+            <div class="f1-font text-lg mono" id="lapRec">1:12.909</div>
+            <div class="text-[10px] text-gray-400" id="lapHolder">Verstappen · 2023</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =================== STANDINGS TAB =================== -->
+  <section id="tab-standings" class="hidden-tab">
+    <h2 class="f1-font text-3xl uppercase mb-6">Standings <span class="text-[var(--f1-red)]">2025</span></h2>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="card">
+        <div class="p-4 border-b border-[var(--f1-line)] f1-font uppercase">Driver Standings</div>
+        <table><thead><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Wins</th><th>PTS</th></tr></thead><tbody id="dstandings"></tbody></table>
+      </div>
+      <div class="card">
+        <div class="p-4 border-b border-[var(--f1-line)] f1-font uppercase">Constructor Standings</div>
+        <table><thead><tr><th>Pos</th><th>Team</th><th>Wins</th><th>Podiums</th><th>PTS</th></tr></thead><tbody id="cstandings"></tbody></table>
+      </div>
+    </div>
+  </section>
+
+  <!-- =================== ADMIN TAB =================== -->
+  <section id="tab-admin" class="hidden-tab">
+    <div class="flex justify-between items-center mb-6">
+      <div>
+        <h2 class="f1-font text-3xl uppercase">Admin <span class="text-[var(--f1-red)]">Console</span></h2>
+        <div class="text-sm text-gray-500">Manage drivers, races, results & pipeline · RBAC: Admin</div>
+      </div>
+      <div class="flex gap-2">
+        <span class="pill bg-[var(--f1-red)]/20 text-[var(--f1-red)] border border-[var(--f1-red)]/40">Role: Admin</span>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+
+      <!-- DRIVER FORM -->
+      <div class="card p-6">
+        <div class="f1-font text-lg uppercase mb-1">Add / Update Driver</div>
+        <div class="text-xs text-gray-500 mb-5">Schema-validated · writes to ADLS raw layer</div>
+        <div class="grid grid-cols-2 gap-4">
+          <div><label>Car No.</label><input placeholder="44"/></div>
+          <div><label>Status</label><select><option>Active</option><option>Reserve</option><option>Retired</option></select></div>
+          <div class="col-span-2"><label>Full Name</label><input placeholder="Lewis Hamilton"/></div>
+          <div><label>Team</label><select><option>Mercedes</option><option>Red Bull Racing</option><option>Ferrari</option><option>McLaren</option></select></div>
+          <div><label>Nationality</label><input placeholder="GBR"/></div>
+          <div><label>Date of Birth</label><input type="date"/></div>
+          <div><label>Podiums</label><input type="number" placeholder="0"/></div>
+        </div>
+        <div class="flex gap-3 mt-5">
+          <button class="btn-red">Save Driver</button>
+          <button class="btn-ghost">Reset</button>
+        </div>
+      </div>
+
+      <!-- RACE FORM -->
+      <div class="card p-6">
+        <div class="f1-font text-lg uppercase mb-1">Add / Update Race</div>
+        <div class="text-xs text-gray-500 mb-5">Triggers ADF ingestion pipeline on save</div>
+        <div class="grid grid-cols-2 gap-4">
+          <div><label>Round</label><input placeholder="9"/></div>
+          <div><label>Status</label><select><option>Upcoming</option><option>Live</option><option>Completed</option><option>Cancelled</option></select></div>
+          <div class="col-span-2"><label>Grand Prix Name</label><input placeholder="Monaco Grand Prix"/></div>
+          <div><label>Circuit</label><input placeholder="Circuit de Monaco"/></div>
+          <div><label>Date</label><input type="date"/></div>
+          <div><label>Total Laps</label><input type="number" placeholder="78"/></div>
+          <div><label>Route Length (km)</label><input type="number" step="0.001" placeholder="260.286"/></div>
+          <div class="col-span-2"><div class="stripe my-2 opacity-50"></div></div>
+          <div class="col-span-2"><label>Winner</label><select><option>—</option><option>Max Verstappen</option><option>Lando Norris</option><option>Charles Leclerc</option></select></div>
+          <div><label>Winning Time</label><input placeholder="1:25:42.118"/></div>
+          <div><label>Fastest Lap</label><input placeholder="1:15.909"/></div>
+        </div>
+        <div class="flex gap-3 mt-5">
+          <button class="btn-red">Save Race</button>
+          <button class="btn-ghost">Trigger ADF Run</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOAD MODE -->
+    <div class="card p-6 mb-6">
+      <div class="flex justify-between items-start mb-5">
+        <div>
+          <div class="f1-font text-lg uppercase">Data Load Mode</div>
+          <div class="text-xs text-gray-500">FR8 · Incremental vs Full reprocessing</div>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-xs uppercase tracking-wider" id="modeLabel">Incremental</span>
+          <div id="loadToggle" class="toggle on" onclick="toggleLoadMode()"></div>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-[#0A0D14] p-4 border border-[var(--f1-line)] rounded">
+          <div class="text-xs text-gray-500 uppercase mb-1">Mode</div>
+          <div class="f1-font text-xl" id="modeVal">Incremental</div>
+          <div class="text-xs text-gray-400 mt-1" id="modeDesc">New + changed rows only since last watermark</div>
+        </div>
+        <div class="bg-[#0A0D14] p-4 border border-[var(--f1-line)] rounded">
+          <div class="text-xs text-gray-500 uppercase mb-1">Estimated Duration</div>
+          <div class="f1-font text-xl mono" id="modeETA">~3 min</div>
+          <div class="text-xs text-gray-400 mt-1">Last run: 2m 47s</div>
+        </div>
+        <div class="bg-[#0A0D14] p-4 border border-[var(--f1-line)] rounded">
+          <div class="text-xs text-gray-500 uppercase mb-1">Rows To Process</div>
+          <div class="f1-font text-xl mono" id="modeRows">12,408</div>
+          <div class="text-xs text-gray-400 mt-1">Watermark: 2025-05-26 14:22</div>
+        </div>
+      </div>
+      <div class="mt-5 p-3 bg-[#0A0D14] border-l-2 border-[var(--f1-red)] text-xs text-gray-300" id="modeWarn">
+        ✓ Incremental load is safe. Uses Delta Lake MERGE on race_id watermark.
+      </div>
+    </div>
+
+    <!-- PIPELINE CONTROL -->
+    <div class="card p-6">
+      <div class="f1-font text-lg uppercase mb-4">Pipeline Control</div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-[#0A0D14] p-4">
+          <div class="text-xs text-gray-500 uppercase mb-2">Ingestion Job</div>
+          <div class="flex justify-between items-center"><span class="f1-font">f1_ingest_daily</span><span class="pill bg-green-600/20 text-green-400">Running</span></div>
+          <button class="btn-ghost mt-3 w-full">View Logs</button>
+        </div>
+        <div class="bg-[#0A0D14] p-4">
+          <div class="text-xs text-gray-500 uppercase mb-2">Transform Job</div>
+          <div class="flex justify-between items-center"><span class="f1-font">databricks_transform</span><span class="pill bg-yellow-600/20 text-yellow-400">Queued</span></div>
+          <button class="btn-ghost mt-3 w-full">Run Now</button>
+        </div>
+        <div class="bg-[#0A0D14] p-4">
+          <div class="text-xs text-gray-500 uppercase mb-2">Power BI Refresh</div>
+          <div class="flex justify-between items-center"><span class="f1-font">pbi_dataset_sync</span><span class="pill bg-green-600/20 text-green-400">Synced</span></div>
+          <button class="btn-ghost mt-3 w-full">Force Refresh</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="border-t border-[var(--f1-line)] mt-12">
+  <div class="stripe"></div>
+  <div class="max-w-[1400px] mx-auto px-6 py-6 flex justify-between text-xs text-gray-500">
+    <div>F1 Race Analytics Lakehouse · Azure Databricks · ADF · Power BI</div>
+    <div>Built by Rahat · Afzaal · Zeeshan</div>
+  </div>
+</footer>
+
+<script>
+// ---------- DATA ----------
+const teamColors = {
+  'Red Bull Racing':'#3671C6','Mercedes':'#27F4D2','Ferrari':'#E80020','McLaren':'#FF8000',
+  'Aston Martin':'#229971','Alpine':'#0093CC','Williams':'#64C4FF','RB':'#6692FF',
+  'Kick Sauber':'#52E252','Haas':'#B6BABD'
+};
+const drivers = [
+  {no:1,name:'Max Verstappen',team:'Red Bull Racing',nat:'NED',pts:169,wins:5,pod:7,status:'Active'},
+  {no:4,name:'Lando Norris',team:'McLaren',nat:'GBR',pts:137,wins:2,pod:6,status:'Active'},
+  {no:16,name:'Charles Leclerc',team:'Ferrari',nat:'MON',pts:118,wins:1,pod:5,status:'Active'},
+  {no:81,name:'Oscar Piastri',team:'McLaren',nat:'AUS',pts:113,wins:1,pod:4,status:'Active'},
+  {no:55,name:'Carlos Sainz',team:'Ferrari',nat:'ESP',pts:108,wins:1,pod:4,status:'Active'},
+  {no:11,name:'Sergio Perez',team:'Red Bull Racing',nat:'MEX',pts:89,wins:0,pod:3,status:'Active'},
+  {no:63,name:'George Russell',team:'Mercedes',nat:'GBR',pts:76,wins:0,pod:2,status:'Active'},
+  {no:44,name:'Lewis Hamilton',team:'Mercedes',nat:'GBR',pts:69,wins:0,pod:2,status:'Active'},
+];
+const races = [
+  {r:1,gp:'Bahrain GP',cir:'Sakhir',date:'2025-03-02',laps:57,win:'Verstappen',t:'1:31:44.742',fl:'1:32.608',st:'Completed'},
+  {r:2,gp:'Saudi Arabian GP',cir:'Jeddah',date:'2025-03-09',laps:50,win:'Verstappen',t:'1:20:43.273',fl:'1:31.632',st:'Completed'},
+  {r:3,gp:'Australian GP',cir:'Albert Park',date:'2025-03-24',laps:58,win:'Sainz',t:'1:20:26.843',fl:'1:19.813',st:'Completed'},
+  {r:4,gp:'Japanese GP',cir:'Suzuka',date:'2025-04-07',laps:53,win:'Verstappen',t:'1:54:23.566',fl:'1:33.706',st:'Completed'},
+  {r:5,gp:'Chinese GP',cir:'Shanghai',date:'2025-04-21',laps:56,win:'Verstappen',t:'1:40:52.554',fl:'1:37.810',st:'Completed'},
+  {r:6,gp:'Miami GP',cir:'Miami Intl.',date:'2025-05-05',laps:57,win:'Norris',t:'1:30:49.876',fl:'1:30.634',st:'Completed'},
+  {r:7,gp:'Emilia Romagna GP',cir:'Imola',date:'2025-05-19',laps:63,win:'Verstappen',t:'1:25:42.118',fl:'1:15.909',st:'Completed'},
+  {r:8,gp:'Monaco GP',cir:'Monaco',date:'2025-05-26',laps:78,win:'—',t:'—',fl:'—',st:'Live'},
+  {r:9,gp:'Canadian GP',cir:'Montréal',date:'2025-06-09',laps:70,win:'—',t:'—',fl:'—',st:'Upcoming'},
+  {r:10,gp:'Spanish GP',cir:'Barcelona',date:'2025-06-23',laps:66,win:'—',t:'—',fl:'—',st:'Upcoming'},
+];
+const constructors = [
+  {team:'Red Bull Racing',wins:5,pod:10,pts:258},
+  {team:'McLaren',wins:3,pod:10,pts:250},
+  {team:'Ferrari',wins:2,pod:9,pts:226},
+  {team:'Mercedes',wins:0,pod:4,pts:145},
+  {team:'Aston Martin',wins:0,pod:1,pts:58},
+];
+
+// ---------- RENDER ----------
+const grid = document.getElementById('driverGrid');
+drivers.forEach((d,idx)=>{
+  const c = teamColors[d.team]||'#888';
+  grid.innerHTML += `
+  <div class="card glow cursor-pointer relative overflow-hidden" onclick="openDriver(${idx})">
+    <div class="team-bar absolute left-0 top-0 bottom-0" style="background:${c};height:100%"></div>
+    <div class="p-5 pl-6">
+      <div class="flex justify-between items-start">
+        <div class="num-badge">${d.no}</div>
+        <span class="pill bg-green-600/20 text-green-400">${d.status}</span>
+      </div>
+      <div class="f1-font text-xl uppercase mt-4 leading-none">${d.name.split(' ')[0]}<br/><span style="color:${c}">${d.name.split(' ').slice(1).join(' ')}</span></div>
+      <div class="text-xs text-gray-400 mt-2">${d.team} · ${d.nat}</div>
+      <div class="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-[var(--f1-line)]">
+        <div><div class="text-[10px] text-gray-500 uppercase">PTS</div><div class="f1-font text-lg">${d.pts}</div></div>
+        <div><div class="text-[10px] text-gray-500 uppercase">Wins</div><div class="f1-font text-lg">${d.wins}</div></div>
+        <div><div class="text-[10px] text-gray-500 uppercase">Pod</div><div class="f1-font text-lg">${d.pod}</div></div>
+      </div>
+    </div>
+  </div>`;
+});
+
+const raceRows = document.getElementById('raceRows');
+races.forEach(r=>{
+  const statusColor = r.st==='Live'?'bg-green-600/20 text-green-400':r.st==='Upcoming'?'bg-gray-600/20 text-gray-300':'bg-[var(--f1-red)]/20 text-[var(--f1-red)]';
+  const liveDot = r.st==='Live'?'<span class="live-dot"></span> ':'';
+  raceRows.innerHTML += `<tr>
+    <td class="f1-font text-[var(--f1-red)]">${String(r.r).padStart(2,'0')}</td>
+    <td class="f1-font uppercase">${r.gp}</td>
+    <td class="text-gray-400">${r.cir}</td>
+    <td>${r.date}</td>
+    <td>${r.laps}</td>
+    <td class="font-bold">${r.win}</td>
+    <td class="font-mono text-xs">${r.t}</td>
+    <td class="font-mono text-xs">${r.fl}</td>
+    <td><span class="pill ${statusColor}">${liveDot}${r.st}</span></td>
+    <td><button class="btn-ghost !py-1 !px-3 !text-[10px]" onclick="showTab('admin')">Edit</button></td>
+  </tr>`;
+});
+
+const ds = document.getElementById('dstandings');
+drivers.forEach((d,i)=>{
+  ds.innerHTML += `<tr>
+    <td class="f1-font text-[var(--f1-red)]">${i+1}</td>
+    <td class="font-bold">${d.name}</td>
+    <td class="text-gray-400">${d.team}</td>
+    <td>${d.wins}</td>
+    <td class="f1-font">${d.pts}</td>
+  </tr>`;
+});
+const cs = document.getElementById('cstandings');
+constructors.forEach((t,i)=>{
+  cs.innerHTML += `<tr>
+    <td class="f1-font text-[var(--f1-red)]">${i+1}</td>
+    <td class="font-bold"><span class="inline-block w-3 h-3 mr-2" style="background:${teamColors[t.team]}"></span>${t.team}</td>
+    <td>${t.wins}</td>
+    <td>${t.pod}</td>
+    <td class="f1-font">${t.pts}</td>
+  </tr>`;
+});
+
+// ---------- TABS ----------
+function showTab(name){
+  document.querySelectorAll('[id^=tab-]').forEach(s=>s.classList.add('hidden-tab'));
+  document.getElementById('tab-'+name).classList.remove('hidden-tab');
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('tab-active'));
+  document.querySelector(`.tab[data-tab="${name}"]`)?.classList.add('tab-active');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>showTab(t.dataset.tab)));
+
+// ---------- DRIVER DRAWER ----------
+function openDriver(i){
+  const d = drivers[i];
+  const c = teamColors[d.team]||'#888';
+  const body = document.getElementById('drawerBody');
+  body.innerHTML = `
+    <div class="flex justify-between items-start mb-6">
+      <div class="num-badge" style="width:60px;height:60px;font-size:26px">${d.no}</div>
+      <button onclick="closeDrawer()" class="text-gray-400 hover:text-white text-2xl">×</button>
+    </div>
+    <div class="f1-font text-4xl uppercase leading-none">${d.name.split(' ')[0]}</div>
+    <div class="f1-font text-4xl uppercase leading-none" style="color:${c}">${d.name.split(' ').slice(1).join(' ')}</div>
+    <div class="mt-3 flex items-center gap-2">
+      <div class="w-3 h-3" style="background:${c}"></div>
+      <span class="text-sm text-gray-300">${d.team}</span>
+      <span class="text-sm text-gray-500">·</span>
+      <span class="text-sm text-gray-300">${d.nat}</span>
+      <span class="pill bg-green-600/20 text-green-400 ml-auto">${d.status}</span>
+    </div>
+
+    <div class="stripe my-6 opacity-60"></div>
+
+    <div class="grid grid-cols-3 gap-3 mb-6">
+      <div class="bg-[#0A0D14] p-3 border border-[var(--f1-line)] rounded">
+        <div class="text-[10px] text-gray-500 uppercase">Points</div>
+        <div class="f1-font text-2xl">${d.pts}</div>
+      </div>
+      <div class="bg-[#0A0D14] p-3 border border-[var(--f1-line)] rounded">
+        <div class="text-[10px] text-gray-500 uppercase">Wins</div>
+        <div class="f1-font text-2xl">${d.wins}</div>
+      </div>
+      <div class="bg-[#0A0D14] p-3 border border-[var(--f1-line)] rounded">
+        <div class="text-[10px] text-gray-500 uppercase">Podiums</div>
+        <div class="f1-font text-2xl">${d.pod}</div>
+      </div>
+    </div>
+
+    <div class="text-xs uppercase tracking-wider text-gray-500 mb-3">Season Form · Last 8 Races</div>
+    <div class="flex gap-1 mb-6">
+      ${[1,2,1,1,3,2,1,1].map(p=>`<div class="flex-1 h-12 flex items-end"><div class="w-full ${p===1?'bg-[var(--f1-red)]':p===2?'bg-orange-500':'bg-yellow-500'}" style="height:${(4-p)*30}%"></div></div>`).join('')}
+    </div>
+
+    <div class="text-xs uppercase tracking-wider text-gray-500 mb-3">Career Stats</div>
+    <div class="space-y-2 text-sm">
+      <div class="flex justify-between"><span class="text-gray-400">Starts</span><span class="mono">${180+i*12}</span></div>
+      <div class="flex justify-between"><span class="text-gray-400">Pole Positions</span><span class="mono">${d.wins*3}</span></div>
+      <div class="flex justify-between"><span class="text-gray-400">Fastest Laps</span><span class="mono">${d.wins*2}</span></div>
+      <div class="flex justify-between"><span class="text-gray-400">First Race</span><span class="mono">${2015-i}</span></div>
+      <div class="flex justify-between"><span class="text-gray-400">Championships</span><span class="mono">${d.no===1?3:0}</span></div>
+    </div>
+
+    <div class="stripe my-6 opacity-60"></div>
+    <button class="btn-red w-full" onclick="showTab('admin');closeDrawer()">Edit Driver</button>
+  `;
+  document.getElementById('driverDrawer').classList.add('open');
+  document.getElementById('drawerOverlay').classList.add('open');
+}
+function closeDrawer(){
+  document.getElementById('driverDrawer').classList.remove('open');
+  document.getElementById('drawerOverlay').classList.remove('open');
+}
+
+// ---------- CIRCUITS ----------
+const circuits = {
+  'monaco':{name:'Circuit de Monaco',len:'3.337 km',laps:78,turns:19,drs:1,rec:'1:12.909',holder:'Verstappen · 2023',
+    path:'M50,200 Q80,120 160,110 L240,120 Q300,130 340,90 L420,80 Q500,90 540,140 Q560,200 510,240 L380,250 Q320,260 280,230 L200,235 Q120,240 80,260 Q50,250 50,200 Z',
+    s:['23.412','28.901','23.596']},
+  'imola':{name:'Autodromo Enzo e Dino Ferrari',len:'4.909 km',laps:63,turns:19,drs:2,rec:'1:15.484',holder:'Hamilton · 2020',
+    path:'M60,180 L140,80 Q200,60 280,90 L360,70 Q440,90 480,140 Q520,200 480,240 L380,260 Q300,250 240,270 L160,260 Q90,250 60,210 Z',
+    s:['24.812','30.114','20.558']},
+  'monza':{name:'Autodromo Nazionale Monza',len:'5.793 km',laps:53,turns:11,drs:3,rec:'1:21.046',holder:'Hamilton · 2020',
+    path:'M40,160 L240,140 L380,80 Q500,90 540,150 L540,220 Q500,260 380,250 L240,240 L120,250 Q40,240 40,160 Z',
+    s:['25.821','27.412','27.813']},
+  'silverstone':{name:'Silverstone Circuit',len:'5.891 km',laps:52,turns:18,drs:2,rec:'1:27.097',holder:'Verstappen · 2020',
+    path:'M50,180 Q90,100 180,90 L300,100 Q380,80 460,120 Q540,170 510,230 Q470,270 380,260 L260,250 Q180,260 110,240 Q40,220 50,180 Z',
+    s:['28.114','30.402','28.581']},
+};
+const csel = document.getElementById('circuitSelect');
+Object.entries(circuits).forEach(([k,v])=>{ csel.innerHTML += `<option value="${k}">${v.name}</option>`; });
+function renderCircuit(key){
+  const c = circuits[key];
+  document.getElementById('circuitName').textContent = c.name;
+  document.getElementById('circuitMeta').textContent = `${c.len} · ${c.laps} laps · ${c.turns} turns`;
+  document.getElementById('s1').textContent = c.s[0];
+  document.getElementById('s2').textContent = c.s[1];
+  document.getElementById('s3').textContent = c.s[2];
+  document.getElementById('drsZones').textContent = c.drs;
+  document.getElementById('lapRec').textContent = c.rec;
+  document.getElementById('lapHolder').textContent = c.holder;
+  document.getElementById('circuitSvg').innerHTML = `
+    <path class="track-bg" d="${c.path}"/>
+    <path class="track-path" d="${c.path}" stroke-dasharray="1400" stroke-dashoffset="1400">
+      <animate attributeName="stroke-dashoffset" from="1400" to="0" dur="2s" fill="freeze"/>
+    </path>
+    <circle cx="50" cy="200" r="8" fill="#fff"/>
+    <text x="62" y="205" fill="#fff" font-size="11" font-family="Oswald">START / FINISH</text>
+  `;
+}
+csel.addEventListener('change',e=>renderCircuit(e.target.value));
+renderCircuit('monaco');
+
+// ---------- LOAD MODE TOGGLE ----------
+function toggleLoadMode(){
+  const t = document.getElementById('loadToggle');
+  const inc = t.classList.toggle('on');
+  document.getElementById('modeLabel').textContent = inc?'Incremental':'Full Reload';
+  document.getElementById('modeVal').textContent = inc?'Incremental':'Full Reload';
+  document.getElementById('modeDesc').textContent = inc?'New + changed rows only since last watermark':'Reprocess entire historical dataset from raw layer';
+  document.getElementById('modeETA').textContent = inc?'~3 min':'~47 min';
+  document.getElementById('modeRows').textContent = inc?'12,408':'8,492,116';
+  const w = document.getElementById('modeWarn');
+  if(inc){ w.className='mt-5 p-3 bg-[#0A0D14] border-l-2 border-[var(--f1-red)] text-xs text-gray-300'; w.textContent='✓ Incremental load is safe. Uses Delta Lake MERGE on race_id watermark.'; }
+  else { w.className='mt-5 p-3 bg-[#0A0D14] border-l-2 border-yellow-500 text-xs text-yellow-200'; w.textContent='⚠ Full reload will drop & rebuild analytics layer. Power BI refresh will be paused during run.'; }
+}
+
+// ---------- COUNTDOWN ----------
+let s=22; setInterval(()=>{ s=(s-1+60)%60; document.getElementById('cd-sec').textContent=String(s).padStart(2,'0'); },1000);
+
+// ---------- CHARTS ----------
+Chart.defaults.color='#9a9aa3'; Chart.defaults.borderColor='#27272f';
+new Chart(document.getElementById('trendChart'),{
+  type:'line',
+  data:{ labels:['BHR','SAU','AUS','JPN','CHN','MIA','EMI','MON'],
+    datasets:[
+      {label:'Verstappen',data:[25,43,61,86,111,129,154,169],borderColor:'#3671C6',tension:.3},
+      {label:'Norris',data:[18,33,49,62,80,105,121,137],borderColor:'#FF8000',tension:.3},
+      {label:'Leclerc',data:[15,27,41,55,71,88,103,118],borderColor:'#E80020',tension:.3},
+      {label:'Piastri',data:[12,24,38,52,68,84,99,113],borderColor:'#FFB266',tension:.3},
+      {label:'Sainz',data:[10,22,40,52,66,82,96,108],borderColor:'#cc1a1a',tension:.3},
+    ]},
+  options:{plugins:{legend:{position:'bottom'}},scales:{y:{grid:{color:'#1c1c24'}},x:{grid:{color:'#1c1c24'}}}}
+});
+new Chart(document.getElementById('donutChart'),{
+  type:'doughnut',
+  data:{labels:constructors.map(c=>c.team),datasets:[{data:constructors.map(c=>c.pts),backgroundColor:constructors.map(c=>teamColors[c.team]),borderColor:'#0a0a0a',borderWidth:2}]},
+  options:{plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}},cutout:'65%'}
+});
+</script>
+</body>
+</html>
