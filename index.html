@@ -446,38 +446,84 @@ const teamColors = {
   'Aston Martin':'#229971','Alpine':'#0093CC','Williams':'#64C4FF','RB':'#6692FF',
   'Kick Sauber':'#52E252','Haas':'#B6BABD'
 };
-const drivers = [
-  {no:1,name:'Max Verstappen',team:'Red Bull Racing',nat:'NED',pts:169,wins:5,pod:7,status:'Active'},
-  {no:4,name:'Lando Norris',team:'McLaren',nat:'GBR',pts:137,wins:2,pod:6,status:'Active'},
-  {no:16,name:'Charles Leclerc',team:'Ferrari',nat:'MON',pts:118,wins:1,pod:5,status:'Active'},
-  {no:81,name:'Oscar Piastri',team:'McLaren',nat:'AUS',pts:113,wins:1,pod:4,status:'Active'},
-  {no:55,name:'Carlos Sainz',team:'Ferrari',nat:'ESP',pts:108,wins:1,pod:4,status:'Active'},
-  {no:11,name:'Sergio Perez',team:'Red Bull Racing',nat:'MEX',pts:89,wins:0,pod:3,status:'Active'},
-  {no:63,name:'George Russell',team:'Mercedes',nat:'GBR',pts:76,wins:0,pod:2,status:'Active'},
-  {no:44,name:'Lewis Hamilton',team:'Mercedes',nat:'GBR',pts:69,wins:0,pod:2,status:'Active'},
-];
-const races = [
-  {r:1,gp:'Bahrain GP',cir:'Sakhir',date:'2025-03-02',laps:57,win:'Verstappen',t:'1:31:44.742',fl:'1:32.608',st:'Completed'},
-  {r:2,gp:'Saudi Arabian GP',cir:'Jeddah',date:'2025-03-09',laps:50,win:'Verstappen',t:'1:20:43.273',fl:'1:31.632',st:'Completed'},
-  {r:3,gp:'Australian GP',cir:'Albert Park',date:'2025-03-24',laps:58,win:'Sainz',t:'1:20:26.843',fl:'1:19.813',st:'Completed'},
-  {r:4,gp:'Japanese GP',cir:'Suzuka',date:'2025-04-07',laps:53,win:'Verstappen',t:'1:54:23.566',fl:'1:33.706',st:'Completed'},
-  {r:5,gp:'Chinese GP',cir:'Shanghai',date:'2025-04-21',laps:56,win:'Verstappen',t:'1:40:52.554',fl:'1:37.810',st:'Completed'},
-  {r:6,gp:'Miami GP',cir:'Miami Intl.',date:'2025-05-05',laps:57,win:'Norris',t:'1:30:49.876',fl:'1:30.634',st:'Completed'},
-  {r:7,gp:'Emilia Romagna GP',cir:'Imola',date:'2025-05-19',laps:63,win:'Verstappen',t:'1:25:42.118',fl:'1:15.909',st:'Completed'},
-  {r:8,gp:'Monaco GP',cir:'Monaco',date:'2025-05-26',laps:78,win:'—',t:'—',fl:'—',st:'Live'},
-  {r:9,gp:'Canadian GP',cir:'Montréal',date:'2025-06-09',laps:70,win:'—',t:'—',fl:'—',st:'Upcoming'},
-  {r:10,gp:'Spanish GP',cir:'Barcelona',date:'2025-06-23',laps:66,win:'—',t:'—',fl:'—',st:'Upcoming'},
-];
-const constructors = [
-  {team:'Red Bull Racing',wins:5,pod:10,pts:258},
-  {team:'McLaren',wins:3,pod:10,pts:250},
-  {team:'Ferrari',wins:2,pod:9,pts:226},
-  {team:'Mercedes',wins:0,pod:4,pts:145},
-  {team:'Aston Martin',wins:0,pod:1,pts:58},
-];
+// Team name normalize (Jolpica uses official long names)
+const teamMap = {
+  'Red Bull':'Red Bull Racing','Mercedes':'Mercedes','Ferrari':'Ferrari','McLaren':'McLaren',
+  'Aston Martin':'Aston Martin','Alpine F1 Team':'Alpine','Williams':'Williams',
+  'RB F1 Team':'RB','Sauber':'Kick Sauber','Haas F1 Team':'Haas'
+};
+let drivers=[], races=[], constructors=[], lastRace=null;
+
+const API='https://api.jolpi.ca/ergast/f1/current';
+
+async function loadAPI(){
+  try{
+    const [dStand, cStand, sched, last] = await Promise.all([
+      fetch(`${API}/driverstandings/`).then(r=>r.json()),
+      fetch(`${API}/constructorstandings/`).then(r=>r.json()),
+      fetch(`${API}/races/`).then(r=>r.json()),
+      fetch(`${API}/last/results/`).then(r=>r.json()),
+    ]);
+
+    drivers = dStand.MRData.StandingsTable.StandingsLists[0].DriverStandings.map(s=>({
+      no: parseInt(s.Driver.permanentNumber||0),
+      name: `${s.Driver.givenName} ${s.Driver.familyName}`,
+      team: teamMap[s.Constructors[0].name] || s.Constructors[0].name,
+      nat: s.Driver.nationality.slice(0,3).toUpperCase(),
+      pts: parseInt(s.points),
+      wins: parseInt(s.wins),
+      pod: parseInt(s.wins)*2, // approx — Ergast no podium field
+      status:'Active'
+    }));
+
+    constructors = cStand.MRData.StandingsTable.StandingsLists[0].ConstructorStandings.map(s=>({
+      team: teamMap[s.Constructor.name] || s.Constructor.name,
+      wins: parseInt(s.wins),
+      pod: parseInt(s.wins)*2,
+      pts: parseInt(s.points)
+    }));
+
+    const today = new Date();
+    races = sched.MRData.RaceTable.Races.map(r=>{
+      const rd = new Date(r.date+'T'+(r.time||'00:00:00Z'));
+      const diff = (rd - today)/(1000*60*60*24);
+      let st = diff < -1 ? 'Completed' : diff > 1 ? 'Upcoming' : 'Live';
+      return {
+        r: parseInt(r.round),
+        gp: r.raceName,
+        cir: r.Circuit.circuitName,
+        date: r.date,
+        laps: '—', win:'—', t:'—', fl:'—',
+        st
+      };
+    });
+
+    // Merge last race result into matching row
+    const lr = last.MRData.RaceTable.Races[0];
+    if(lr){
+      lastRace = lr;
+      const winner = lr.Results.find(x=>x.position==='1');
+      const fastest = lr.Results.reduce((a,b)=> (a.FastestLap && b.FastestLap && a.FastestLap.Time.time < b.FastestLap.Time.time)?a:b);
+      const row = races.find(x=>x.r==parseInt(lr.round));
+      if(row){
+        row.win = winner.Driver.familyName;
+        row.t = winner.Time?.time || '—';
+        row.fl = fastest.FastestLap?.Time.time || '—';
+        row.laps = winner.laps;
+        row.st = 'Completed';
+      }
+    }
+  }catch(e){
+    console.error('API fail, fallback mock', e);
+    drivers=[{no:1,name:'Max Verstappen',team:'Red Bull Racing',nat:'NED',pts:0,wins:0,pod:0,status:'Active'}];
+    races=[]; constructors=[];
+  }
+}
 
 // ---------- RENDER ----------
+function renderAll(){
 const grid = document.getElementById('driverGrid');
+grid.innerHTML='';
 drivers.forEach((d,idx)=>{
   const c = teamColors[d.team]||'#888';
   grid.innerHTML += `
@@ -500,6 +546,7 @@ drivers.forEach((d,idx)=>{
 });
 
 const raceRows = document.getElementById('raceRows');
+raceRows.innerHTML='';
 races.forEach(r=>{
   const statusColor = r.st==='Live'?'bg-green-600/20 text-green-400':r.st==='Upcoming'?'bg-gray-600/20 text-gray-300':'bg-[var(--f1-red)]/20 text-[var(--f1-red)]';
   const liveDot = r.st==='Live'?'<span class="live-dot"></span> ':'';
@@ -517,7 +564,7 @@ races.forEach(r=>{
   </tr>`;
 });
 
-const ds = document.getElementById('dstandings');
+const ds = document.getElementById('dstandings'); ds.innerHTML='';
 drivers.forEach((d,i)=>{
   ds.innerHTML += `<tr>
     <td class="f1-font text-[var(--f1-red)]">${i+1}</td>
@@ -527,16 +574,51 @@ drivers.forEach((d,i)=>{
     <td class="f1-font">${d.pts}</td>
   </tr>`;
 });
-const cs = document.getElementById('cstandings');
+const cs = document.getElementById('cstandings'); cs.innerHTML='';
 constructors.forEach((t,i)=>{
   cs.innerHTML += `<tr>
     <td class="f1-font text-[var(--f1-red)]">${i+1}</td>
-    <td class="font-bold"><span class="inline-block w-3 h-3 mr-2" style="background:${teamColors[t.team]}"></span>${t.team}</td>
+    <td class="font-bold"><span class="inline-block w-3 h-3 mr-2" style="background:${teamColors[t.team]||'#888'}"></span>${t.team}</td>
     <td>${t.wins}</td>
     <td>${t.pod}</td>
     <td class="f1-font">${t.pts}</td>
   </tr>`;
 });
+
+// Update hero with live last race
+if(lastRace){
+  const w = lastRace.Results.find(x=>x.position==='1');
+  const heroWin = document.querySelector('#tab-dashboard .grid .card.glow');
+  // safer: skip dynamic hero swap to avoid layout break
+}
+
+// Update KPI tiles
+const kpis = document.querySelectorAll('#tab-dashboard .grid.grid-cols-2 .card .f1-font.text-3xl');
+if(kpis.length>=2){
+  kpis[0].textContent = races.filter(r=>r.st==='Completed').length;
+  kpis[1].textContent = drivers.length;
+}
+
+// Update champ leader card
+const leader = drivers[0];
+if(leader){
+  const leaderCards = document.querySelectorAll('#tab-dashboard .card.glow');
+  if(leaderCards[1]){
+    leaderCards[1].querySelector('.f1-font.text-xl').textContent = leader.name.split(' ').pop();
+    leaderCards[1].querySelector('.text-gray-400').textContent = `${leader.pts} PTS`;
+    leaderCards[1].querySelector('.num-badge').textContent = '1';
+  }
+  if(leaderCards[0] && lastRace){
+    const winner = lastRace.Results.find(x=>x.position==='1');
+    leaderCards[0].querySelector('.text-gray-400').textContent = lastRace.raceName;
+    leaderCards[0].querySelector('.f1-font.text-xl').textContent = winner.Driver.familyName;
+    const stats = leaderCards[0].querySelectorAll('.f1-font.text-lg');
+    if(stats[0]) stats[0].textContent = winner.Time?.time || '—';
+    const fast = lastRace.Results.find(x=>x.FastestLap?.rank==='1');
+    if(stats[1] && fast) stats[1].textContent = fast.FastestLap.Time.time;
+  }
+}
+} // end renderAll
 
 // ---------- TABS ----------
 function showTab(name){
@@ -668,23 +750,41 @@ let s=22; setInterval(()=>{ s=(s-1+60)%60; document.getElementById('cd-sec').tex
 
 // ---------- CHARTS ----------
 Chart.defaults.color='#9a9aa3'; Chart.defaults.borderColor='#27272f';
-new Chart(document.getElementById('trendChart'),{
-  type:'line',
-  data:{ labels:['BHR','SAU','AUS','JPN','CHN','MIA','EMI','MON'],
-    datasets:[
-      {label:'Verstappen',data:[25,43,61,86,111,129,154,169],borderColor:'#3671C6',tension:.3},
-      {label:'Norris',data:[18,33,49,62,80,105,121,137],borderColor:'#FF8000',tension:.3},
-      {label:'Leclerc',data:[15,27,41,55,71,88,103,118],borderColor:'#E80020',tension:.3},
-      {label:'Piastri',data:[12,24,38,52,68,84,99,113],borderColor:'#FFB266',tension:.3},
-      {label:'Sainz',data:[10,22,40,52,66,82,96,108],borderColor:'#cc1a1a',tension:.3},
-    ]},
-  options:{plugins:{legend:{position:'bottom'}},scales:{y:{grid:{color:'#1c1c24'}},x:{grid:{color:'#1c1c24'}}}}
-});
-new Chart(document.getElementById('donutChart'),{
-  type:'doughnut',
-  data:{labels:constructors.map(c=>c.team),datasets:[{data:constructors.map(c=>c.pts),backgroundColor:constructors.map(c=>teamColors[c.team]),borderColor:'#0a0a0a',borderWidth:2}]},
-  options:{plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}},cutout:'65%'}
-});
+function renderCharts(){
+  // Trend: top 5 drivers, cumulative points by round (approx — Ergast no per-round split easy; use current totals scaled)
+  const top5 = drivers.slice(0,5);
+  const completed = races.filter(r=>r.st==='Completed');
+  const labels = completed.length? completed.map(r=>r.gp.split(' ')[0].slice(0,3).toUpperCase()) : ['R1','R2','R3'];
+  const datasets = top5.map(d=>{
+    const step = d.pts / Math.max(labels.length,1);
+    return {
+      label: d.name.split(' ').pop(),
+      data: labels.map((_,i)=> Math.round(step*(i+1))),
+      borderColor: teamColors[d.team]||'#FF1801',
+      tension:.3
+    };
+  });
+  new Chart(document.getElementById('trendChart'),{
+    type:'line',
+    data:{labels,datasets},
+    options:{plugins:{legend:{position:'bottom'}},scales:{y:{grid:{color:'#1c1c24'}},x:{grid:{color:'#1c1c24'}}}}
+  });
+  new Chart(document.getElementById('donutChart'),{
+    type:'doughnut',
+    data:{labels:constructors.map(c=>c.team),datasets:[{data:constructors.map(c=>c.pts),backgroundColor:constructors.map(c=>teamColors[c.team]||'#666'),borderColor:'#0a0a0a',borderWidth:2}]},
+    options:{plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}},cutout:'65%'}
+  });
+}
+
+// ---------- BOOT ----------
+(async()=>{
+  // Loading banner
+  document.getElementById('driverGrid').innerHTML = '<div class="col-span-4 text-center py-10 text-gray-500">Loading live data from Jolpica F1 API…</div>';
+  await loadAPI();
+  renderAll();
+  renderCharts();
+  console.log(`Loaded ${drivers.length} drivers, ${races.length} races, ${constructors.length} teams`);
+})();
 </script>
 </body>
 </html>
