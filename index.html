@@ -76,6 +76,30 @@
 </head>
 <body class="min-h-screen">
 
+<!-- LOGIN OVERLAY -->
+<div id="loginOverlay" class="fixed inset-0 z-[100] flex items-center justify-center" style="background:radial-gradient(900px 500px at 50% 0%, rgba(255,24,1,.12), transparent 60%), #06070B;">
+  <div class="card p-8 w-[380px] max-w-[92vw]">
+    <div class="flex items-center gap-2 mb-6">
+      <div class="bg-[var(--f1-red)] f1-font text-white text-xl px-3 py-1 clip-slant">F1</div>
+      <div class="f1-font text-sm uppercase tracking-widest">Race Analytics<span class="text-[var(--f1-red)]">.</span></div>
+    </div>
+    <div class="f1-font text-2xl uppercase mb-1">Sign In</div>
+    <div class="text-xs text-gray-500 mb-6">RBAC secured · select role to continue</div>
+    <label>Username</label>
+    <input id="li_user" placeholder="admin" value="admin"/>
+    <div class="mt-4"><label>Password</label>
+    <input id="li_pass" type="password" placeholder="••••••" value="f1demo"/></div>
+    <div class="mt-4"><label>Role</label>
+    <select id="li_role"><option value="Admin">Admin — full access</option><option value="Analyst">Analyst — edit data</option><option value="Viewer">Viewer — read only</option></select></div>
+    <div id="li_err" class="text-xs text-[var(--f1-red)] mt-3 hidden"></div>
+    <button class="btn-red w-full mt-6 !text-center" onclick="login()">Enter Console</button>
+    <div class="text-[10px] text-gray-600 mt-4 text-center">Demo creds: admin / f1demo</div>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div id="toastWrap" class="fixed bottom-6 right-6 z-[110] space-y-2"></div>
+
 <!-- TOP BAR -->
 <header class="border-b border-[var(--f1-line)] sticky top-0 z-40 bg-[var(--f1-bg)]/95 backdrop-blur">
   <div class="stripe"></div>
@@ -94,13 +118,15 @@
       </nav>
     </div>
     <div class="flex items-center gap-3">
-      <select class="!w-28 !py-2 text-xs"><option>2025</option><option>2024</option><option>2023</option></select>
+      <select id="seasonSelect" class="!w-28 !py-2 text-xs" onchange="changeSeason(this.value)">
+        <option>2025</option><option>2024</option><option>2023</option><option>2022</option><option>2021</option>
+      </select>
       <span class="pill bg-green-600/20 text-green-400 border border-green-600/40">● Pipeline OK</span>
-      <div class="flex items-center gap-2 ml-2">
-        <div class="w-9 h-9 rounded-full bg-[var(--f1-red)] flex items-center justify-center font-bold text-sm">RM</div>
+      <div class="flex items-center gap-2 ml-2 cursor-pointer" onclick="logout()" title="Click to log out">
+        <div id="userAvatar" class="w-9 h-9 rounded-full bg-[var(--f1-red)] flex items-center justify-center font-bold text-sm">RM</div>
         <div class="text-xs">
-          <div class="font-bold">Rahat M.</div>
-          <div class="text-[10px] text-gray-400 uppercase">Admin</div>
+          <div class="font-bold" id="userName">Rahat M.</div>
+          <div class="text-[10px] text-gray-400 uppercase" id="userRole">Admin</div>
         </div>
       </div>
     </div>
@@ -224,11 +250,11 @@
   <section id="tab-drivers" class="hidden-tab">
     <div class="flex justify-between items-center mb-6">
       <div>
-        <h2 class="f1-font text-3xl uppercase">Drivers <span class="text-[var(--f1-red)]">2025</span></h2>
-        <div class="text-sm text-gray-500">20 active · 10 constructors</div>
+        <h2 class="f1-font text-3xl uppercase">Drivers <span class="text-[var(--f1-red)]" id="driversYear">2025</span></h2>
+        <div class="text-sm text-gray-500" id="driversCount">— active</div>
       </div>
       <div class="flex gap-2">
-        <input placeholder="Search driver..." class="!w-56"/>
+        <input id="driverSearch" placeholder="Search driver / team..." class="!w-56" oninput="renderDrivers()"/>
         <button class="btn-red" onclick="showTab('admin')">+ Add Driver</button>
       </div>
     </div>
@@ -245,11 +271,11 @@
   <section id="tab-races" class="hidden-tab">
     <div class="flex justify-between items-center mb-6">
       <div>
-        <h2 class="f1-font text-3xl uppercase">Race Calendar <span class="text-[var(--f1-red)]">2025</span></h2>
-        <div class="text-sm text-gray-500">24 rounds · 8 completed · 1 live</div>
+        <h2 class="f1-font text-3xl uppercase">Race Calendar <span class="text-[var(--f1-red)]" id="racesYear">2025</span></h2>
+        <div class="text-sm text-gray-500" id="racesCount">— rounds</div>
       </div>
       <div class="flex gap-2">
-        <select class="!w-36"><option>All status</option><option>Completed</option><option>Upcoming</option><option>Live</option></select>
+        <select id="raceFilter" class="!w-36" onchange="renderRaces()"><option value="All">All status</option><option>Completed</option><option>Upcoming</option><option>Live</option></select>
         <button class="btn-red" onclick="showTab('admin')">+ Add Race</button>
       </div>
     </div>
@@ -331,44 +357,67 @@
 
       <!-- DRIVER FORM -->
       <div class="card p-6">
-        <div class="f1-font text-lg uppercase mb-1">Add / Update Driver</div>
+        <div class="f1-font text-lg uppercase mb-1" id="driverFormTitle">Add / Update Driver</div>
         <div class="text-xs text-gray-500 mb-5">Schema-validated · writes to ADLS raw layer</div>
+        <form id="driverForm" onsubmit="saveDriver(event)">
+        <input type="hidden" id="d_editIdx" value=""/>
         <div class="grid grid-cols-2 gap-4">
-          <div><label>Car No.</label><input placeholder="44"/></div>
-          <div><label>Status</label><select><option>Active</option><option>Reserve</option><option>Retired</option></select></div>
-          <div class="col-span-2"><label>Full Name</label><input placeholder="Lewis Hamilton"/></div>
-          <div><label>Team</label><select><option>Mercedes</option><option>Red Bull Racing</option><option>Ferrari</option><option>McLaren</option></select></div>
-          <div><label>Nationality</label><input placeholder="GBR"/></div>
-          <div><label>Date of Birth</label><input type="date"/></div>
-          <div><label>Podiums</label><input type="number" placeholder="0"/></div>
+          <div><label>Car No. *</label><input id="d_no" type="number" placeholder="44"/></div>
+          <div><label>Status</label><select id="d_status"><option>Active</option><option>Reserve</option><option>Retired</option></select></div>
+          <div class="col-span-2"><label>Full Name *</label><input id="d_name" placeholder="Lewis Hamilton"/></div>
+          <div><label>Team *</label><select id="d_team"><option>Mercedes</option><option>Red Bull Racing</option><option>Ferrari</option><option>McLaren</option><option>Aston Martin</option><option>Alpine</option><option>Williams</option><option>RB</option><option>Kick Sauber</option><option>Haas</option></select></div>
+          <div><label>Nationality</label><input id="d_nat" placeholder="GBR" maxlength="3"/></div>
+          <div><label>Points</label><input id="d_pts" type="number" placeholder="0"/></div>
+          <div><label>Wins</label><input id="d_wins" type="number" placeholder="0"/></div>
+          <div class="col-span-2"><label>Podiums</label><input id="d_pod" type="number" placeholder="0"/></div>
         </div>
+        <div id="d_err" class="text-xs text-[var(--f1-red)] mt-3 hidden"></div>
         <div class="flex gap-3 mt-5">
-          <button class="btn-red">Save Driver</button>
-          <button class="btn-ghost">Reset</button>
+          <button type="submit" class="btn-red">Save Driver</button>
+          <button type="button" class="btn-ghost" onclick="resetDriverForm()">Reset</button>
         </div>
+        </form>
       </div>
 
       <!-- RACE FORM -->
       <div class="card p-6">
-        <div class="f1-font text-lg uppercase mb-1">Add / Update Race</div>
+        <div class="f1-font text-lg uppercase mb-1" id="raceFormTitle">Add / Update Race</div>
         <div class="text-xs text-gray-500 mb-5">Triggers ADF ingestion pipeline on save</div>
+        <form id="raceForm" onsubmit="saveRace(event)">
+        <input type="hidden" id="r_editIdx" value=""/>
         <div class="grid grid-cols-2 gap-4">
-          <div><label>Round</label><input placeholder="9"/></div>
-          <div><label>Status</label><select><option>Upcoming</option><option>Live</option><option>Completed</option><option>Cancelled</option></select></div>
-          <div class="col-span-2"><label>Grand Prix Name</label><input placeholder="Monaco Grand Prix"/></div>
-          <div><label>Circuit</label><input placeholder="Circuit de Monaco"/></div>
-          <div><label>Date</label><input type="date"/></div>
-          <div><label>Total Laps</label><input type="number" placeholder="78"/></div>
-          <div><label>Route Length (km)</label><input type="number" step="0.001" placeholder="260.286"/></div>
+          <div><label>Round *</label><input id="r_round" type="number" placeholder="9"/></div>
+          <div><label>Status</label><select id="r_status"><option>Upcoming</option><option>Live</option><option>Completed</option><option>Cancelled</option></select></div>
+          <div class="col-span-2"><label>Grand Prix Name *</label><input id="r_gp" placeholder="Monaco Grand Prix"/></div>
+          <div><label>Circuit</label><input id="r_cir" placeholder="Circuit de Monaco"/></div>
+          <div><label>Date</label><input id="r_date" type="date"/></div>
+          <div><label>Total Laps</label><input id="r_laps" type="number" placeholder="78"/></div>
+          <div><label>Route Length (km)</label><input id="r_len" type="number" step="0.001" placeholder="260.286"/></div>
           <div class="col-span-2"><div class="stripe my-2 opacity-50"></div></div>
-          <div class="col-span-2"><label>Winner</label><select><option>—</option><option>Max Verstappen</option><option>Lando Norris</option><option>Charles Leclerc</option></select></div>
-          <div><label>Winning Time</label><input placeholder="1:25:42.118"/></div>
-          <div><label>Fastest Lap</label><input placeholder="1:15.909"/></div>
+          <div class="col-span-2"><label>Winner</label><input id="r_win" placeholder="Verstappen"/></div>
+          <div><label>Winning Time</label><input id="r_time" placeholder="1:25:42.118"/></div>
+          <div><label>Fastest Lap</label><input id="r_fl" placeholder="1:15.909"/></div>
         </div>
+        <div id="r_err" class="text-xs text-[var(--f1-red)] mt-3 hidden"></div>
         <div class="flex gap-3 mt-5">
-          <button class="btn-red">Save Race</button>
-          <button class="btn-ghost">Trigger ADF Run</button>
+          <button type="submit" class="btn-red">Save Race</button>
+          <button type="button" class="btn-ghost" onclick="triggerJob('adf')">Trigger ADF Run</button>
         </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MANAGE DRIVERS LIST -->
+    <div class="card p-6 mb-6">
+      <div class="flex justify-between items-center mb-4">
+        <div class="f1-font text-lg uppercase">Manage Drivers</div>
+        <span class="text-xs text-gray-500" id="manageDriverCount"></span>
+      </div>
+      <div class="scroll-x">
+        <table>
+          <thead><tr><th>No.</th><th>Name</th><th>Team</th><th>Nat</th><th>PTS</th><th>Wins</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="manageDriverRows"></tbody>
+        </table>
       </div>
     </div>
 
@@ -407,24 +456,38 @@
     </div>
 
     <!-- PIPELINE CONTROL -->
-    <div class="card p-6">
+    <div class="card p-6 mb-6">
       <div class="f1-font text-lg uppercase mb-4">Pipeline Control</div>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div class="bg-[#0A0D14] p-4">
           <div class="text-xs text-gray-500 uppercase mb-2">Ingestion Job</div>
-          <div class="flex justify-between items-center"><span class="f1-font">f1_ingest_daily</span><span class="pill bg-green-600/20 text-green-400">Running</span></div>
-          <button class="btn-ghost mt-3 w-full">View Logs</button>
+          <div class="flex justify-between items-center"><span class="f1-font">f1_ingest_daily</span><span class="pill bg-green-600/20 text-green-400" id="job-ingest">Running</span></div>
+          <button class="btn-ghost mt-3 w-full" onclick="triggerJob('ingest')">Run Now</button>
         </div>
         <div class="bg-[#0A0D14] p-4">
           <div class="text-xs text-gray-500 uppercase mb-2">Transform Job</div>
-          <div class="flex justify-between items-center"><span class="f1-font">databricks_transform</span><span class="pill bg-yellow-600/20 text-yellow-400">Queued</span></div>
-          <button class="btn-ghost mt-3 w-full">Run Now</button>
+          <div class="flex justify-between items-center"><span class="f1-font">databricks_transform</span><span class="pill bg-yellow-600/20 text-yellow-400" id="job-transform">Queued</span></div>
+          <button class="btn-ghost mt-3 w-full" onclick="triggerJob('transform')">Run Now</button>
         </div>
         <div class="bg-[#0A0D14] p-4">
           <div class="text-xs text-gray-500 uppercase mb-2">Power BI Refresh</div>
-          <div class="flex justify-between items-center"><span class="f1-font">pbi_dataset_sync</span><span class="pill bg-green-600/20 text-green-400">Synced</span></div>
-          <button class="btn-ghost mt-3 w-full">Force Refresh</button>
+          <div class="flex justify-between items-center"><span class="f1-font">pbi_dataset_sync</span><span class="pill bg-green-600/20 text-green-400" id="job-pbi">Synced</span></div>
+          <button class="btn-ghost mt-3 w-full" onclick="triggerJob('pbi')">Force Refresh</button>
         </div>
+      </div>
+    </div>
+
+    <!-- PIPELINE LOGS -->
+    <div class="card p-6">
+      <div class="flex justify-between items-center mb-4">
+        <div class="f1-font text-lg uppercase">Pipeline Run History &amp; Logs</div>
+        <button class="btn-ghost" onclick="clearLogs()">Clear</button>
+      </div>
+      <div class="scroll-x">
+        <table>
+          <thead><tr><th>Timestamp</th><th>Job</th><th>Event</th><th>Status</th><th>User</th></tr></thead>
+          <tbody id="logRows"></tbody>
+        </table>
       </div>
     </div>
   </section>
@@ -453,30 +516,43 @@ const teamMap = {
   'RB F1 Team':'RB','Sauber':'Kick Sauber','Haas F1 Team':'Haas'
 };
 let drivers=[], races=[], constructors=[], lastRace=null;
+let session=null, currentSeason='2025';
+let trendChartObj=null, donutChartObj=null;
 
-const API='https://api.jolpi.ca/ergast/f1/current';
+const API_ROOT='https://api.jolpi.ca/ergast/f1';
 
-async function loadAPI(){
+// ---------- LOCAL OVERRIDES (CRUD persistence) ----------
+function lsKey(t){ return `f1_${t}_${currentSeason}`; }
+function getOverrides(t){ try{ return JSON.parse(localStorage.getItem(lsKey(t)))||{driverEdits:[],raceEdits:[]}; }catch(e){ return {driverEdits:[],raceEdits:[]}; } }
+function saveOverrides(o){ localStorage.setItem(lsKey('data'), JSON.stringify(o)); }
+function loadOverrides(){ try{ return JSON.parse(localStorage.getItem(lsKey('data')))||{drivers:[],races:[]}; }catch(e){ return {drivers:[],races:[]}; } }
+
+// ---------- API ----------
+async function loadAPI(season){
+  const API=`${API_ROOT}/${season}`;
   try{
     const [dStand, cStand, sched, last] = await Promise.all([
       fetch(`${API}/driverstandings/`).then(r=>r.json()),
       fetch(`${API}/constructorstandings/`).then(r=>r.json()),
       fetch(`${API}/races/`).then(r=>r.json()),
-      fetch(`${API}/last/results/`).then(r=>r.json()),
+      fetch(`${API}/last/results/`).then(r=>r.json()).catch(()=>null),
     ]);
 
-    drivers = dStand.MRData.StandingsTable.StandingsLists[0].DriverStandings.map(s=>({
+    const dLists = dStand.MRData.StandingsTable.StandingsLists;
+    drivers = (dLists[0]?.DriverStandings||[]).map(s=>({
       no: parseInt(s.Driver.permanentNumber||0),
       name: `${s.Driver.givenName} ${s.Driver.familyName}`,
       team: teamMap[s.Constructors[0].name] || s.Constructors[0].name,
       nat: s.Driver.nationality.slice(0,3).toUpperCase(),
       pts: parseInt(s.points),
       wins: parseInt(s.wins),
-      pod: parseInt(s.wins)*2, // approx — Ergast no podium field
-      status:'Active'
+      pod: parseInt(s.wins)*2,
+      status:'Active',
+      src:'api'
     }));
 
-    constructors = cStand.MRData.StandingsTable.StandingsLists[0].ConstructorStandings.map(s=>({
+    const cLists = cStand.MRData.StandingsTable.StandingsLists;
+    constructors = (cLists[0]?.ConstructorStandings||[]).map(s=>({
       team: teamMap[s.Constructor.name] || s.Constructor.name,
       wins: parseInt(s.wins),
       pod: parseInt(s.wins)*2,
@@ -488,127 +564,139 @@ async function loadAPI(){
       const rd = new Date(r.date+'T'+(r.time||'00:00:00Z'));
       const diff = (rd - today)/(1000*60*60*24);
       let st = diff < -1 ? 'Completed' : diff > 1 ? 'Upcoming' : 'Live';
-      return {
-        r: parseInt(r.round),
-        gp: r.raceName,
-        cir: r.Circuit.circuitName,
-        date: r.date,
-        laps: '—', win:'—', t:'—', fl:'—',
-        st
-      };
+      return { r:parseInt(r.round), gp:r.raceName, cir:r.Circuit.circuitName, date:r.date, laps:'—', win:'—', t:'—', fl:'—', st, src:'api' };
     });
 
-    // Merge last race result into matching row
-    const lr = last.MRData.RaceTable.Races[0];
+    const lr = last?.MRData?.RaceTable?.Races?.[0];
     if(lr){
       lastRace = lr;
       const winner = lr.Results.find(x=>x.position==='1');
-      const fastest = lr.Results.reduce((a,b)=> (a.FastestLap && b.FastestLap && a.FastestLap.Time.time < b.FastestLap.Time.time)?a:b);
+      const fastest = lr.Results.find(x=>x.FastestLap?.rank==='1');
       const row = races.find(x=>x.r==parseInt(lr.round));
-      if(row){
+      if(row && winner){
         row.win = winner.Driver.familyName;
         row.t = winner.Time?.time || '—';
-        row.fl = fastest.FastestLap?.Time.time || '—';
+        row.fl = fastest?.FastestLap?.Time.time || '—';
         row.laps = winner.laps;
         row.st = 'Completed';
       }
-    }
+    } else { lastRace=null; }
+
+    // merge local CRUD overrides
+    const ov = loadOverrides();
+    ov.drivers.forEach(ed=>{
+      const i = drivers.findIndex(d=>d.no===ed.no && d.name===ed._orig);
+      if(ed._deleted){ const di=drivers.findIndex(d=>d.no===ed.no); if(di>=0) drivers.splice(di,1); return; }
+      const existing = drivers.findIndex(d=>d.no===ed.no);
+      if(existing>=0) drivers[existing]={...drivers[existing],...ed,src:'local'};
+      else drivers.push({...ed,src:'local'});
+    });
+    ov.races.forEach(ed=>{
+      const existing = races.findIndex(r=>r.r===ed.r);
+      if(ed._deleted){ if(existing>=0) races.splice(existing,1); return; }
+      if(existing>=0) races[existing]={...races[existing],...ed,src:'local'};
+      else races.push({...ed,src:'local'});
+    });
+    races.sort((a,b)=>a.r-b.r);
+    drivers.sort((a,b)=>b.pts-a.pts);
   }catch(e){
-    console.error('API fail, fallback mock', e);
-    drivers=[{no:1,name:'Max Verstappen',team:'Red Bull Racing',nat:'NED',pts:0,wins:0,pod:0,status:'Active'}];
-    races=[]; constructors=[];
+    console.error('API fail', e);
+    toast('API error — '+(e.message||'no data for season'),'err');
+    drivers=[]; races=[]; constructors=[]; lastRace=null;
   }
 }
 
-// ---------- RENDER ----------
-function renderAll(){
-const grid = document.getElementById('driverGrid');
-grid.innerHTML='';
-drivers.forEach((d,idx)=>{
-  const c = teamColors[d.team]||'#888';
-  grid.innerHTML += `
-  <div class="card glow cursor-pointer relative overflow-hidden" onclick="openDriver(${idx})">
-    <div class="team-bar absolute left-0 top-0 bottom-0" style="background:${c};height:100%"></div>
-    <div class="p-5 pl-6">
-      <div class="flex justify-between items-start">
-        <div class="num-badge">${d.no}</div>
-        <span class="pill bg-green-600/20 text-green-400">${d.status}</span>
+// ---------- RENDER: DRIVERS ----------
+function renderDrivers(){
+  const q = (document.getElementById('driverSearch')?.value||'').toLowerCase();
+  const grid = document.getElementById('driverGrid');
+  const list = drivers.filter(d=> d.name.toLowerCase().includes(q) || d.team.toLowerCase().includes(q));
+  document.getElementById('driversCount').textContent = `${drivers.length} drivers · ${constructors.length} teams`;
+  document.getElementById('driversYear').textContent = currentSeason;
+  grid.innerHTML = list.length? '' : '<div class="col-span-4 text-center py-10 text-gray-500">No drivers match.</div>';
+  list.forEach(d=>{
+    const idx = drivers.indexOf(d);
+    const c = teamColors[d.team]||'#888';
+    const stColor = d.status==='Active'?'bg-green-600/20 text-green-400':d.status==='Retired'?'bg-[var(--f1-red)]/20 text-[var(--f1-red)]':'bg-gray-600/20 text-gray-300';
+    grid.innerHTML += `
+    <div class="card glow cursor-pointer relative overflow-hidden" onclick="openDriver(${idx})">
+      ${d.src==='local'?'<span class="absolute top-2 right-2 pill bg-blue-600/20 text-blue-400">Edited</span>':''}
+      <div class="team-bar absolute left-0 top-0 bottom-0" style="background:${c};height:100%"></div>
+      <div class="p-5 pl-6">
+        <div class="flex justify-between items-start">
+          <div class="num-badge">${d.no||'–'}</div>
+          <span class="pill ${stColor}">${d.status}</span>
+        </div>
+        <div class="f1-font text-xl uppercase mt-4 leading-none">${d.name.split(' ')[0]}<br/><span style="color:${c}">${d.name.split(' ').slice(1).join(' ')}</span></div>
+        <div class="text-xs text-gray-400 mt-2">${d.team} · ${d.nat}</div>
+        <div class="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-[var(--f1-line)]">
+          <div><div class="text-[10px] text-gray-500 uppercase">PTS</div><div class="f1-font text-lg">${d.pts}</div></div>
+          <div><div class="text-[10px] text-gray-500 uppercase">Wins</div><div class="f1-font text-lg">${d.wins}</div></div>
+          <div><div class="text-[10px] text-gray-500 uppercase">Pod</div><div class="f1-font text-lg">${d.pod}</div></div>
+        </div>
       </div>
-      <div class="f1-font text-xl uppercase mt-4 leading-none">${d.name.split(' ')[0]}<br/><span style="color:${c}">${d.name.split(' ').slice(1).join(' ')}</span></div>
-      <div class="text-xs text-gray-400 mt-2">${d.team} · ${d.nat}</div>
-      <div class="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-[var(--f1-line)]">
-        <div><div class="text-[10px] text-gray-500 uppercase">PTS</div><div class="f1-font text-lg">${d.pts}</div></div>
-        <div><div class="text-[10px] text-gray-500 uppercase">Wins</div><div class="f1-font text-lg">${d.wins}</div></div>
-        <div><div class="text-[10px] text-gray-500 uppercase">Pod</div><div class="f1-font text-lg">${d.pod}</div></div>
-      </div>
-    </div>
-  </div>`;
-});
-
-const raceRows = document.getElementById('raceRows');
-raceRows.innerHTML='';
-races.forEach(r=>{
-  const statusColor = r.st==='Live'?'bg-green-600/20 text-green-400':r.st==='Upcoming'?'bg-gray-600/20 text-gray-300':'bg-[var(--f1-red)]/20 text-[var(--f1-red)]';
-  const liveDot = r.st==='Live'?'<span class="live-dot"></span> ':'';
-  raceRows.innerHTML += `<tr>
-    <td class="f1-font text-[var(--f1-red)]">${String(r.r).padStart(2,'0')}</td>
-    <td class="f1-font uppercase">${r.gp}</td>
-    <td class="text-gray-400">${r.cir}</td>
-    <td>${r.date}</td>
-    <td>${r.laps}</td>
-    <td class="font-bold">${r.win}</td>
-    <td class="font-mono text-xs">${r.t}</td>
-    <td class="font-mono text-xs">${r.fl}</td>
-    <td><span class="pill ${statusColor}">${liveDot}${r.st}</span></td>
-    <td><button class="btn-ghost !py-1 !px-3 !text-[10px]" onclick="showTab('admin')">Edit</button></td>
-  </tr>`;
-});
-
-const ds = document.getElementById('dstandings'); ds.innerHTML='';
-drivers.forEach((d,i)=>{
-  ds.innerHTML += `<tr>
-    <td class="f1-font text-[var(--f1-red)]">${i+1}</td>
-    <td class="font-bold">${d.name}</td>
-    <td class="text-gray-400">${d.team}</td>
-    <td>${d.wins}</td>
-    <td class="f1-font">${d.pts}</td>
-  </tr>`;
-});
-const cs = document.getElementById('cstandings'); cs.innerHTML='';
-constructors.forEach((t,i)=>{
-  cs.innerHTML += `<tr>
-    <td class="f1-font text-[var(--f1-red)]">${i+1}</td>
-    <td class="font-bold"><span class="inline-block w-3 h-3 mr-2" style="background:${teamColors[t.team]||'#888'}"></span>${t.team}</td>
-    <td>${t.wins}</td>
-    <td>${t.pod}</td>
-    <td class="f1-font">${t.pts}</td>
-  </tr>`;
-});
-
-// Update hero with live last race
-if(lastRace){
-  const w = lastRace.Results.find(x=>x.position==='1');
-  const heroWin = document.querySelector('#tab-dashboard .grid .card.glow');
-  // safer: skip dynamic hero swap to avoid layout break
+    </div>`;
+  });
 }
 
-// Update KPI tiles
-const kpis = document.querySelectorAll('#tab-dashboard .grid.grid-cols-2 .card .f1-font.text-3xl');
-if(kpis.length>=2){
-  kpis[0].textContent = races.filter(r=>r.st==='Completed').length;
-  kpis[1].textContent = drivers.length;
+// ---------- RENDER: RACES ----------
+function renderRaces(){
+  const f = document.getElementById('raceFilter')?.value||'All';
+  const rows = document.getElementById('raceRows');
+  const list = races.filter(r=> f==='All' || r.st===f);
+  const completed = races.filter(r=>r.st==='Completed').length;
+  const live = races.filter(r=>r.st==='Live').length;
+  document.getElementById('racesCount').textContent = `${races.length} rounds · ${completed} completed · ${live} live`;
+  document.getElementById('racesYear').textContent = currentSeason;
+  rows.innerHTML='';
+  list.forEach(r=>{
+    const idx = races.indexOf(r);
+    const statusColor = r.st==='Live'?'bg-green-600/20 text-green-400':r.st==='Upcoming'?'bg-gray-600/20 text-gray-300':r.st==='Cancelled'?'bg-gray-700/40 text-gray-400':'bg-[var(--f1-red)]/20 text-[var(--f1-red)]';
+    const liveDot = r.st==='Live'?'<span class="live-dot"></span> ':'';
+    rows.innerHTML += `<tr>
+      <td class="f1-font text-[var(--f1-red)]">${String(r.r).padStart(2,'0')}</td>
+      <td class="f1-font uppercase">${r.gp} ${r.src==='local'?'<span class="pill bg-blue-600/20 text-blue-400 ml-1">Edited</span>':''}</td>
+      <td class="text-gray-400">${r.cir}</td>
+      <td>${r.date}</td>
+      <td>${r.laps}</td>
+      <td class="font-bold">${r.win}</td>
+      <td class="mono text-xs">${r.t}</td>
+      <td class="mono text-xs">${r.fl}</td>
+      <td><span class="pill ${statusColor}">${liveDot}${r.st}</span></td>
+      <td><button class="btn-ghost !py-1 !px-3 !text-[10px]" onclick="editRace(${idx})">Edit</button></td>
+    </tr>`;
+  });
 }
 
-// Update champ leader card
-const leader = drivers[0];
-if(leader){
+// ---------- RENDER: STANDINGS ----------
+function renderStandings(){
+  const ds = document.getElementById('dstandings'); ds.innerHTML='';
+  drivers.forEach((d,i)=>{
+    ds.innerHTML += `<tr><td class="f1-font text-[var(--f1-red)]">${i+1}</td><td class="font-bold">${d.name}</td><td class="text-gray-400">${d.team}</td><td>${d.wins}</td><td class="f1-font">${d.pts}</td></tr>`;
+  });
+  const cs = document.getElementById('cstandings'); cs.innerHTML='';
+  constructors.forEach((t,i)=>{
+    cs.innerHTML += `<tr><td class="f1-font text-[var(--f1-red)]">${i+1}</td><td class="font-bold"><span class="inline-block w-3 h-3 mr-2" style="background:${teamColors[t.team]||'#888'}"></span>${t.team}</td><td>${t.wins}</td><td>${t.pod}</td><td class="f1-font">${t.pts}</td></tr>`;
+  });
+}
+
+// ---------- RENDER: DASHBOARD ----------
+function renderDashboard(){
+  const kpis = document.querySelectorAll('#tab-dashboard .grid.grid-cols-2 .card .f1-font.text-3xl');
+  if(kpis.length>=2){
+    kpis[0].textContent = races.filter(r=>r.st==='Completed').length;
+    kpis[1].textContent = drivers.length;
+  }
+  const leader = drivers[0];
   const leaderCards = document.querySelectorAll('#tab-dashboard .card.glow');
-  if(leaderCards[1]){
+  if(leader && leaderCards[1]){
     leaderCards[1].querySelector('.f1-font.text-xl').textContent = leader.name.split(' ').pop();
     leaderCards[1].querySelector('.text-gray-400').textContent = `${leader.pts} PTS`;
-    leaderCards[1].querySelector('.num-badge').textContent = '1';
+    const gap = drivers[1]? leader.pts-drivers[1].pts : 0;
+    const gapEl = leaderCards[1].querySelector('.text-\\[var\\(--f1-red\\)\\].font-bold');
+    if(gapEl) gapEl.textContent = `+${gap} PTS`;
   }
-  if(leaderCards[0] && lastRace){
+  if(lastRace && leaderCards[0]){
     const winner = lastRace.Results.find(x=>x.position==='1');
     leaderCards[0].querySelector('.text-gray-400').textContent = lastRace.raceName;
     leaderCards[0].querySelector('.f1-font.text-xl').textContent = winner.Driver.familyName;
@@ -617,8 +705,51 @@ if(leader){
     const fast = lastRace.Results.find(x=>x.FastestLap?.rank==='1');
     if(stats[1] && fast) stats[1].textContent = fast.FastestLap.Time.time;
   }
+  // next race in hero
+  const next = races.find(r=>r.st==='Upcoming') || races.find(r=>r.st==='Live');
+  if(next){
+    const hero = document.querySelector('#tab-dashboard .col-span-12.md\\:col-span-6');
+    if(hero){
+      hero.querySelector('.pill').textContent = `Next Race · Round ${next.r}`;
+      const words = next.gp.replace(' Grand Prix','').trim();
+      hero.querySelector('h1').innerHTML = `${words}<br/><span class="text-[var(--f1-red)]">Grand Prix</span>`;
+      hero.querySelector('.text-sm.text-gray-400').textContent = `${next.cir} · ${next.date}`;
+    }
+  }
 }
-} // end renderAll
+
+// ---------- RENDER: ADMIN MANAGE ----------
+function renderManageDrivers(){
+  const rows = document.getElementById('manageDriverRows'); if(!rows) return;
+  rows.innerHTML='';
+  document.getElementById('manageDriverCount').textContent = `${drivers.length} total`;
+  drivers.forEach((d,idx)=>{
+    const canEdit = session && session.role!=='Viewer';
+    rows.innerHTML += `<tr>
+      <td class="f1-font text-[var(--f1-red)]">${d.no||'–'}</td>
+      <td class="font-bold">${d.name} ${d.src==='local'?'<span class="pill bg-blue-600/20 text-blue-400 ml-1">Edited</span>':''}</td>
+      <td class="text-gray-400">${d.team}</td>
+      <td>${d.nat}</td>
+      <td class="mono">${d.pts}</td>
+      <td class="mono">${d.wins}</td>
+      <td>${d.status}</td>
+      <td>
+        ${canEdit?`<button class="btn-ghost !py-1 !px-3 !text-[10px]" onclick="editDriver(${idx})">Edit</button>
+        <button class="btn-ghost !py-1 !px-3 !text-[10px] ml-1" style="border-color:#5a1a1a" onclick="deleteDriver(${idx})">Del</button>`:'<span class="text-xs text-gray-600">read-only</span>'}
+      </td>
+    </tr>`;
+  });
+}
+
+// ---------- RENDER ALL ----------
+function renderAll(){
+  renderDrivers();
+  renderRaces();
+  renderStandings();
+  renderDashboard();
+  renderManageDrivers();
+  renderCharts();
+}
 
 // ---------- TABS ----------
 function showTab(name){
@@ -745,9 +876,6 @@ function toggleLoadMode(){
   else { w.className='mt-5 p-3 bg-[#0A0D14] border-l-2 border-yellow-500 text-xs text-yellow-200'; w.textContent='⚠ Full reload will drop & rebuild analytics layer. Power BI refresh will be paused during run.'; }
 }
 
-// ---------- COUNTDOWN ----------
-let s=22; setInterval(()=>{ s=(s-1+60)%60; document.getElementById('cd-sec').textContent=String(s).padStart(2,'0'); },1000);
-
 // ---------- CHARTS ----------
 Chart.defaults.color='#9a9aa3'; Chart.defaults.borderColor='#27272f';
 function renderCharts(){
@@ -764,25 +892,242 @@ function renderCharts(){
       tension:.3
     };
   });
-  new Chart(document.getElementById('trendChart'),{
+  if(trendChartObj) trendChartObj.destroy();
+  trendChartObj = new Chart(document.getElementById('trendChart'),{
     type:'line',
     data:{labels,datasets},
     options:{plugins:{legend:{position:'bottom'}},scales:{y:{grid:{color:'#1c1c24'}},x:{grid:{color:'#1c1c24'}}}}
   });
-  new Chart(document.getElementById('donutChart'),{
+  if(donutChartObj) donutChartObj.destroy();
+  donutChartObj = new Chart(document.getElementById('donutChart'),{
     type:'doughnut',
     data:{labels:constructors.map(c=>c.team),datasets:[{data:constructors.map(c=>c.pts),backgroundColor:constructors.map(c=>teamColors[c.team]||'#666'),borderColor:'#0a0a0a',borderWidth:2}]},
     options:{plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}},cutout:'65%'}
   });
 }
 
+// ---------- TOAST ----------
+function toast(msg,type='ok'){
+  const colors = {ok:'border-green-500 text-green-300',err:'border-[var(--f1-red)] text-red-300',info:'border-blue-500 text-blue-300'};
+  const el = document.createElement('div');
+  el.className = `card px-4 py-3 text-sm border-l-4 ${colors[type]||colors.ok} shadow-xl`;
+  el.style.minWidth='240px';
+  el.innerHTML = msg;
+  document.getElementById('toastWrap').appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; el.style.transition='.3s'; setTimeout(()=>el.remove(),300); }, 3200);
+}
+
+// ---------- LOGS ----------
+function getLogs(){ try{ return JSON.parse(localStorage.getItem('f1_logs'))||[]; }catch(e){ return []; } }
+function addLog(job,event,status){
+  const logs = getLogs();
+  logs.unshift({ts:new Date().toLocaleString(), job, event, status, user:session?.user||'system'});
+  localStorage.setItem('f1_logs', JSON.stringify(logs.slice(0,100)));
+  renderLogs();
+}
+function renderLogs(){
+  const rows = document.getElementById('logRows'); if(!rows) return;
+  const logs = getLogs();
+  rows.innerHTML = logs.length? '' : '<tr><td colspan="5" class="text-center text-gray-600 py-6">No runs logged yet.</td></tr>';
+  logs.forEach(l=>{
+    const sc = l.status==='Success'?'bg-green-600/20 text-green-400':l.status==='Failed'?'bg-[var(--f1-red)]/20 text-[var(--f1-red)]':'bg-yellow-600/20 text-yellow-400';
+    rows.innerHTML += `<tr><td class="mono text-xs text-gray-400">${l.ts}</td><td class="f1-font">${l.job}</td><td>${l.event}</td><td><span class="pill ${sc}">${l.status}</span></td><td class="text-gray-400">${l.user}</td></tr>`;
+  });
+}
+function clearLogs(){ if(!requireRole('Analyst'))return; localStorage.removeItem('f1_logs'); renderLogs(); toast('Logs cleared','info'); }
+
+// ---------- RBAC ----------
+const roleRank = {Viewer:0, Analyst:1, Admin:2};
+function requireRole(min){
+  if(!session){ toast('Not signed in','err'); return false; }
+  if(roleRank[session.role] < roleRank[min]){ toast(`Requires ${min} role — you are ${session.role}`,'err'); return false; }
+  return true;
+}
+function login(){
+  const u=document.getElementById('li_user').value.trim();
+  const p=document.getElementById('li_pass').value;
+  const role=document.getElementById('li_role').value;
+  const err=document.getElementById('li_err');
+  if(u!=='admin' || p!=='f1demo'){ err.textContent='Invalid credentials. Use admin / f1demo'; err.classList.remove('hidden'); return; }
+  session={user:u, role};
+  sessionStorage.setItem('f1_session', JSON.stringify(session));
+  document.getElementById('loginOverlay').style.display='none';
+  applyRole();
+  addLog('auth','Sign in','Success');
+  toast(`Welcome — signed in as ${role}`,'ok');
+}
+function logout(){ sessionStorage.removeItem('f1_session'); location.reload(); }
+function applyRole(){
+  document.getElementById('userName').textContent = session.user.charAt(0).toUpperCase()+session.user.slice(1);
+  document.getElementById('userRole').textContent = session.role;
+  document.getElementById('userAvatar').textContent = session.user.slice(0,2).toUpperCase();
+  const adminTab = document.querySelector('.tab[data-tab="admin"]');
+  if(session.role==='Viewer'){ adminTab.style.opacity='.4'; }
+  renderManageDrivers();
+}
+
+// ---------- SEASON ----------
+async function changeSeason(yr){
+  currentSeason=yr;
+  document.getElementById('driverGrid').innerHTML='<div class="col-span-4 text-center py-10 text-gray-500">Loading '+yr+' season…</div>';
+  await loadAPI(yr);
+  renderAll();
+  toast(`Loaded ${yr} season · ${drivers.length} drivers`,'info');
+}
+
+// ---------- DRIVER CRUD ----------
+function persistDriver(obj, deleted=false){
+  const ov = loadOverrides();
+  const i = ov.drivers.findIndex(d=>d.no===obj.no);
+  const rec = {...obj, _deleted:deleted};
+  if(i>=0) ov.drivers[i]=rec; else ov.drivers.push(rec);
+  saveOverrides(ov);
+}
+function saveDriver(e){
+  e.preventDefault();
+  if(!requireRole('Analyst')) return;
+  const err=document.getElementById('d_err');
+  const no=parseInt(document.getElementById('d_no').value);
+  const name=document.getElementById('d_name').value.trim();
+  const team=document.getElementById('d_team').value;
+  if(!name || !no){ err.textContent='⚠ Car No. and Full Name required (schema validation)'; err.classList.remove('hidden'); return; }
+  err.classList.add('hidden');
+  const obj={ no, name, team,
+    nat:(document.getElementById('d_nat').value||'—').toUpperCase(),
+    pts:parseInt(document.getElementById('d_pts').value)||0,
+    wins:parseInt(document.getElementById('d_wins').value)||0,
+    pod:parseInt(document.getElementById('d_pod').value)||0,
+    status:document.getElementById('d_status').value, src:'local' };
+  const editIdx=document.getElementById('d_editIdx').value;
+  if(editIdx!==''){ drivers[parseInt(editIdx)]=obj; } else {
+    const ex=drivers.findIndex(d=>d.no===no);
+    if(ex>=0) drivers[ex]=obj; else drivers.push(obj);
+  }
+  drivers.sort((a,b)=>b.pts-a.pts);
+  persistDriver(obj);
+  renderAll();
+  addLog('f1_ingest','Driver upsert: '+name,'Success');
+  toast(`Driver "${name}" saved → ADLS raw layer`,'ok');
+  resetDriverForm();
+}
+function editDriver(idx){
+  if(!requireRole('Analyst'))return;
+  const d=drivers[idx];
+  document.getElementById('d_editIdx').value=idx;
+  document.getElementById('d_no').value=d.no;
+  document.getElementById('d_name').value=d.name;
+  document.getElementById('d_team').value=d.team;
+  document.getElementById('d_nat').value=d.nat;
+  document.getElementById('d_pts').value=d.pts;
+  document.getElementById('d_wins').value=d.wins;
+  document.getElementById('d_pod').value=d.pod;
+  document.getElementById('d_status').value=d.status;
+  document.getElementById('driverFormTitle').textContent='Edit Driver: '+d.name;
+  showTab('admin');
+  toast('Editing '+d.name,'info');
+}
+function deleteDriver(idx){
+  if(!requireRole('Analyst'))return;
+  const d=drivers[idx];
+  if(!confirm(`Delete driver "${d.name}"? This removes them from the analytics layer.`)) return;
+  persistDriver(d, true);
+  drivers.splice(idx,1);
+  renderAll();
+  addLog('f1_ingest','Driver delete: '+d.name,'Success');
+  toast(`Driver "${d.name}" deleted`,'err');
+}
+function resetDriverForm(){
+  document.getElementById('driverForm').reset();
+  document.getElementById('d_editIdx').value='';
+  document.getElementById('d_err').classList.add('hidden');
+  document.getElementById('driverFormTitle').textContent='Add / Update Driver';
+}
+
+// ---------- RACE CRUD ----------
+function persistRace(obj, deleted=false){
+  const ov = loadOverrides();
+  const i = ov.races.findIndex(r=>r.r===obj.r);
+  const rec = {...obj, _deleted:deleted};
+  if(i>=0) ov.races[i]=rec; else ov.races.push(rec);
+  saveOverrides(ov);
+}
+function saveRace(e){
+  e.preventDefault();
+  if(!requireRole('Analyst')) return;
+  const err=document.getElementById('r_err');
+  const round=parseInt(document.getElementById('r_round').value);
+  const gp=document.getElementById('r_gp').value.trim();
+  if(!round || !gp){ err.textContent='⚠ Round and Grand Prix Name required'; err.classList.remove('hidden'); return; }
+  err.classList.add('hidden');
+  const obj={ r:round, gp,
+    cir:document.getElementById('r_cir').value||'—',
+    date:document.getElementById('r_date').value||'—',
+    laps:document.getElementById('r_laps').value||'—',
+    win:document.getElementById('r_win').value||'—',
+    t:document.getElementById('r_time').value||'—',
+    fl:document.getElementById('r_fl').value||'—',
+    st:document.getElementById('r_status').value, src:'local' };
+  const ex=races.findIndex(r=>r.r===round);
+  if(ex>=0) races[ex]=obj; else races.push(obj);
+  races.sort((a,b)=>a.r-b.r);
+  persistRace(obj);
+  renderAll();
+  addLog('f1_ingest','Race upsert: '+gp,'Success');
+  toast(`Race "${gp}" saved · ADF pipeline triggered`,'ok');
+  triggerJob('adf', true);
+  document.getElementById('raceForm').reset();
+  document.getElementById('raceFormTitle').textContent='Add / Update Race';
+}
+function editRace(idx){
+  if(!requireRole('Analyst')){ showTab('races'); return; }
+  const r=races[idx];
+  document.getElementById('r_round').value=r.r;
+  document.getElementById('r_gp').value=r.gp;
+  document.getElementById('r_cir').value=r.cir==='—'?'':r.cir;
+  document.getElementById('r_date').value=r.date==='—'?'':r.date;
+  document.getElementById('r_laps').value=r.laps==='—'?'':r.laps;
+  document.getElementById('r_win').value=r.win==='—'?'':r.win;
+  document.getElementById('r_time').value=r.t==='—'?'':r.t;
+  document.getElementById('r_fl').value=r.fl==='—'?'':r.fl;
+  document.getElementById('r_status').value=r.st;
+  document.getElementById('raceFormTitle').textContent='Edit Race: '+r.gp;
+  showTab('admin');
+  toast('Editing '+r.gp,'info');
+}
+
+// ---------- PIPELINE JOBS ----------
+function triggerJob(job, silent=false){
+  if(!requireRole('Analyst')) return;
+  const map={
+    adf:{id:null, name:'f1_ingest_daily (ADF)', el:'job-ingest'},
+    ingest:{id:'job-ingest', name:'f1_ingest_daily'},
+    transform:{id:'job-transform', name:'databricks_transform'},
+    pbi:{id:'job-pbi', name:'pbi_dataset_sync'}
+  };
+  const j=map[job]; if(!j) return;
+  const badge = j.id? document.getElementById(j.id):document.getElementById('job-ingest');
+  if(badge){ badge.textContent='Running'; badge.className='pill bg-yellow-600/20 text-yellow-400'; }
+  addLog(j.name,'Triggered run','Running');
+  if(!silent) toast(`${j.name} started…`,'info');
+  setTimeout(()=>{
+    if(badge){ badge.textContent= job==='pbi'?'Synced':'Healthy'; badge.className='pill bg-green-600/20 text-green-400'; }
+    addLog(j.name,'Run completed','Success');
+    toast(`${j.name} completed ✓`,'ok');
+  }, 1800);
+}
+
+// ---------- COUNTDOWN ----------
+let s=22; setInterval(()=>{ s=(s-1+60)%60; const el=document.getElementById('cd-sec'); if(el) el.textContent=String(s).padStart(2,'0'); },1000);
+
 // ---------- BOOT ----------
 (async()=>{
-  // Loading banner
+  // restore session
+  try{ session=JSON.parse(sessionStorage.getItem('f1_session')); }catch(e){}
+  if(session){ document.getElementById('loginOverlay').style.display='none'; applyRole(); }
   document.getElementById('driverGrid').innerHTML = '<div class="col-span-4 text-center py-10 text-gray-500">Loading live data from Jolpica F1 API…</div>';
-  await loadAPI();
+  await loadAPI(currentSeason);
   renderAll();
-  renderCharts();
+  renderLogs();
   console.log(`Loaded ${drivers.length} drivers, ${races.length} races, ${constructors.length} teams`);
 })();
 </script>
